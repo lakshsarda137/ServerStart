@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { dark, light, GLYPH, SPINNER, runtimeColor, type Palette } from '../../ui/theme.js';
+import { dark, light, GLYPH, SPINNER, type Palette } from '../../ui/theme.js';
 import type { ServiceState, ServiceStatus } from '../../runtime/types.js';
 
 interface Snapshot {
@@ -15,7 +15,23 @@ interface Snapshot {
   result: { at: number; text: string; level: 'ok' | 'err' | 'info' } | null;
 }
 
-const COUNT_ORDER: ServiceState[] = ['ready', 'starting', 'queued', 'stopping', 'crashed', 'blocked', 'stopped', 'external'];
+const LABEL: Record<ServiceState, string> = {
+  ready: 'Ready',
+  starting: 'Starting',
+  queued: 'Queued',
+  stopping: 'Stopping',
+  crashed: 'Crashed',
+  blocked: 'Blocked',
+  stopped: 'Stopped',
+  external: 'External',
+};
+const TILES: { state: ServiceState; also?: ServiceState[] }[] = [
+  { state: 'ready' },
+  { state: 'starting', also: ['queued', 'stopping'] },
+  { state: 'crashed', also: ['blocked'] },
+  { state: 'stopped' },
+  { state: 'external' },
+];
 const TIMEOUTS = ['15s', '30s', '60s', '90s', '120s', '180s', '300s'];
 const SHELLS = ['zsh', 'bash', 'sh', 'fish'];
 
@@ -33,8 +49,8 @@ function usePalette(): Palette {
   useEffect(() => {
     const root = document.documentElement.style;
     for (const [k, v] of Object.entries(p)) if (typeof v === 'string') root.setProperty(`--${k}`, v);
-    root.setProperty('--blocked', p.states.blocked);
-    document.documentElement.style.colorScheme = isLight ? 'light' : 'dark';
+    for (const [k, v] of Object.entries(p.states)) root.setProperty(`--s-${k}`, v);
+    document.documentElement.dataset.theme = isLight ? 'light' : 'dark';
   }, [p]);
   return p;
 }
@@ -89,7 +105,7 @@ function uptime(s: number | null | undefined): string {
   if (s === null || s === undefined) return '';
   if (s < 60) return `${s}s`;
   if (s < 3600) return `${Math.floor(s / 60)}m`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
   return `${Math.floor(s / 86400)}d`;
 }
 
@@ -100,36 +116,70 @@ function size(n: number | null): string {
   return `${(n / 1048576).toFixed(1)} MB`;
 }
 
-function StateCell({ s, p, frame }: { s: ServiceState; p: Palette; frame: number }) {
-  const glyph = s === 'starting' || s === 'stopping' ? SPINNER[frame % SPINNER.length] : GLYPH[s];
-  return <span style={{ color: p.states[s] }}>{`${glyph} ${s}`}</span>;
-}
+const running = (s: ServiceStatus) => s.state === 'ready' || s.state === 'starting';
 
-function Counts({ snap, p, frame }: { snap: Snapshot; p: Palette; frame: number }) {
-  if (snap.docker !== null)
-    return (
-      <span>
-        <span style={{ color: p.accent }}>{SPINNER[frame % SPINNER.length]}</span> Docker Desktop <span className="muted">{snap.docker}s</span>
-      </span>
-    );
-  if (!snap.services.length) return <span className="muted">0 services</span>;
+// ── icons (inline SVG, stroke) ─────────────────────────────────────────────────
+
+const Icon = ({ d, size: sz = 16, fill }: { d: string; size?: number; fill?: boolean }) => (
+  <svg width={sz} height={sz} viewBox="0 0 24 24" fill={fill ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d={d} />
+  </svg>
+);
+const I = {
+  play: 'M7 4.5v15l12-7.5z',
+  stop: 'M7 7h10v10H7z',
+  restart: 'M3 12a9 9 0 1 0 3-6.7M3 4v5h5',
+  open: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
+  logs: 'M5 4h14v16H5zM9 9h6M9 13h6M9 17h4',
+  star: 'M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z',
+  x: 'M6 6l12 12M18 6L6 18',
+  search: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-4-4',
+  alert: 'M12 4l9 16H3zM12 10v4M12 17.5v.01',
+  link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
+};
+
+function StatusPill({ s, frame }: { s: ServiceState; frame: number }) {
+  const spin = s === 'starting' || s === 'stopping';
   return (
-    <>
-      {COUNT_ORDER.filter((s) => snap.counts[s]).map((s) => (
-        <span key={s} style={{ color: p.states[s] }}>{`${GLYPH[s]} ${snap.counts[s]} ${s}`}</span>
-      ))}
-    </>
+    <span className={`pill pill-${s}`}>
+      <span className="pill-glyph">{spin ? SPINNER[frame % SPINNER.length] : GLYPH[s]}</span>
+      {LABEL[s]}
+    </span>
   );
 }
 
-const canStop = (s: ServiceStatus) => s.state === 'ready' || s.state === 'starting';
+function IconButton(props: { icon: string; label: string; onClick: () => void; disabled?: boolean }) {
+  const solid = props.icon === I.play || props.icon === I.stop;
+  return (
+    <button
+      className="icon-btn"
+      title={props.label}
+      aria-label={props.label}
+      disabled={props.disabled}
+      onClick={(e) => {
+        e.stopPropagation();
+        props.onClick();
+      }}
+    >
+      <Icon d={props.icon} fill={solid} size={solid ? 13 : 16} />
+    </button>
+  );
+}
 
-// ── log panel ──────────────────────────────────────────────────────────────────
+function Switch({ on, disabled, onChange, label }: { on: boolean; disabled?: boolean; onChange: (v: boolean) => void; label: string }) {
+  return (
+    <button role="switch" aria-checked={on} aria-label={label} className={`switch ${on ? 'on' : ''}`} disabled={disabled} onClick={() => onChange(!on)}>
+      <span className="knob" />
+    </button>
+  );
+}
 
-function classify(line: string): string {
+// ── log drawer ─────────────────────────────────────────────────────────────────
+
+function lineClass(line: string): string {
   if (/^── \d{4}-\d\d-\d\d .* start \d+ ─+$/.test(line)) return 'sep';
-  if (/\b[A-Z]\w*(Error|Exception)\b|Traceback|^\s*Error:|\bERROR\b|\bERR!/.test(line)) return 'lvl-err';
-  if (/\bWARN(ING)?\b/.test(line)) return 'lvl-warn';
+  if (/\b[A-Z]\w*(Error|Exception)\b|Traceback|^\s*Error:|\bERROR\b|\bERR!/.test(line)) return 'err';
+  if (/\bWARN(ING)?\b/.test(line)) return 'warn';
   return '';
 }
 
@@ -148,24 +198,8 @@ function highlight(text: string, q: string): React.ReactNode {
   return parts;
 }
 
-function LogLine({ line, isError, q }: { line: string; isError: boolean; q: string }) {
-  const cls = isError ? 'error' : classify(line);
-  const m = /^(\s*(?:INFO|DEBUG):?)(.*)$/.exec(line);
-  return (
-    <div className={`log-line ${cls}`}>
-      {m && !cls ? (
-        <>
-          <span className="lvl-info">{m[1]}</span>
-          {highlight(m[2], q)}
-        </>
-      ) : (
-        highlight(line, q)
-      )}
-    </div>
-  );
-}
-
-function LogPanel({ svc, p, frame, onClose, findRef }: { svc: ServiceStatus; p: Palette; frame: number; onClose: () => void; findRef: React.RefObject<HTMLInputElement> }) {
+function LogDrawer(props: { svc: ServiceStatus; frame: number; live: boolean; onClose: () => void; findRef: React.RefObject<HTMLInputElement> }) {
+  const { svc } = props;
   const [lines, setLines] = useState<string[]>([]);
   const [meta, setMeta] = useState<{ path: string; size: number | null }>({ path: '', size: null });
   const [following, setFollowing] = useState(true);
@@ -190,11 +224,7 @@ function LogPanel({ svc, p, frame, onClose, findRef }: { svc: ServiceStatus; p: 
       setLines((prev) => {
         const incoming = (d.text as string).split('\n');
         const next = [...prev];
-        if (next.length && prev[prev.length - 1] !== undefined && incoming.length) {
-          // continue a partial last line
-          const last = next.pop()!;
-          next.push(last + incoming.shift());
-        }
+        if (next.length && incoming.length) next.push(next.pop()! + incoming.shift());
         next.push(...incoming);
         return next.slice(-5000);
       });
@@ -218,66 +248,77 @@ function LogPanel({ svc, p, frame, onClose, findRef }: { svc: ServiceStatus; p: 
     } else if (!atBottom && following) setFollowing(false);
   };
 
+  const shown = lines[lines.length - 1] === '' ? lines.slice(0, -1) : lines;
+  const matches = query ? shown.filter((l) => l.toLowerCase().includes(query.toLowerCase())).length : 0;
   const findNext = () => {
     const el = body.current;
     if (!el || !query) return;
-    const rows = [...el.querySelectorAll('.log-line')];
-    const top = el.scrollTop;
-    const hit = rows.find((r) => (r as HTMLElement).offsetTop > top + 4 && r.textContent?.toLowerCase().includes(query.toLowerCase())) ?? rows.find((r) => r.textContent?.toLowerCase().includes(query.toLowerCase()));
+    const rows = [...el.querySelectorAll('.log-line')] as HTMLElement[];
+    const q = query.toLowerCase();
+    const hit = rows.find((r) => r.offsetTop > el.scrollTop + 4 && r.textContent?.toLowerCase().includes(q)) ?? rows.find((r) => r.textContent?.toLowerCase().includes(q));
     if (hit) {
       setFollowing(false);
-      el.scrollTop = (hit as HTMLElement).offsetTop - el.clientHeight / 2;
+      el.scrollTop = hit.offsetTop - el.clientHeight / 2;
     }
   };
-
-  const shown = lines[lines.length - 1] === '' ? lines.slice(0, -1) : lines;
   const errorLine = svc.state === 'crashed' ? svc.error : null;
+
   return (
-    <aside className="panel">
-      <div className="panel-head">
-        <div className="row">
-          <span className="name" style={{ fontWeight: 700 }}>
-            {svc.name}
-          </span>
-          <StateCell s={svc.state} p={p} frame={frame} />
-          {svc.port && <span className="port">{svc.port}</span>}
-          <span className="spacer" />
-          <button className="btn close" onClick={onClose}>
-            [close]
-          </button>
+    <aside className="drawer" aria-label={`${svc.name} logs`}>
+      <div className="drawer-head">
+        <div className="drawer-title">
+          <span className="drawer-name">{svc.name}</span>
+          <StatusPill s={svc.state} frame={props.frame} />
         </div>
-        <div className="row">
-          <span className="path">{meta.path.replace(/^.*\/(logs\/)/, '$1')}</span>
-          <span className="muted">{size(meta.size)}</span>
+        <div className="drawer-actions">
+          {svc.state !== 'external' && <IconButton icon={I.restart} label="Restart" disabled={!props.live} onClick={() => void post(`/api/services/${svc.name}/restart`)} />}
+          {svc.url && <IconButton icon={I.open} label="Open in browser" onClick={() => window.open(svc.url!, '_blank')} />}
+          <IconButton icon={I.x} label="Close" onClick={props.onClose} />
         </div>
       </div>
-      <div className="panel-body" ref={body} onScroll={onScroll}>
-        {shown.map((l, i) => (
-          <LogLine key={i} line={l} isError={!!errorLine && l.trim() === errorLine} q={query} />
-        ))}
+      <div className="drawer-meta mono">
+        {svc.port && <span>:{svc.port}</span>}
+        <span>{meta.path.replace(/^.*\/(logs\/)/, '$1')}</span>
+        <span>{size(meta.size)}</span>
       </div>
-      <div className="panel-foot">
-        <button
-          className={`follow ${following ? 'on' : 'off'}`}
-          onClick={() => {
-            setFollowing(true);
-            setPending(0);
-          }}
-        >
-          {following ? 'FOLLOWING' : `PAUSED${pending ? ` +${pending}` : ''}`}
-        </button>
-        <input
-          ref={findRef}
-          className="find"
-          placeholder="find"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') findNext();
-            if (e.key === 'Escape') (e.target as HTMLInputElement).blur();
-            e.stopPropagation();
-          }}
-        />
+      <div className="drawer-tools">
+        <label className="follow">
+          <Switch
+            on={following}
+            label="Follow"
+            onChange={(v) => {
+              setFollowing(v);
+              if (v) setPending(0);
+            }}
+          />
+          <span>{following ? 'Following' : pending ? `Paused, ${pending} new` : 'Paused'}</span>
+        </label>
+        <div className="search">
+          <Icon d={I.search} size={14} />
+          <input
+            ref={props.findRef}
+            placeholder="Find in log"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') findNext();
+              if (e.key === 'Escape') (e.target as HTMLInputElement).blur();
+              e.stopPropagation();
+            }}
+          />
+          {query && <span className="count">{matches}</span>}
+        </div>
+      </div>
+      <div className="log mono" ref={body} onScroll={onScroll}>
+        {shown.length === 0 && <div className="log-empty">No output yet</div>}
+        {shown.map((l, i) => {
+          const isErr = !!errorLine && l.trim() === errorLine;
+          return (
+            <div key={i} className={`log-line ${isErr ? 'error' : lineClass(l)}`}>
+              {highlight(l, query)}
+            </div>
+          );
+        })}
       </div>
     </aside>
   );
@@ -285,164 +326,160 @@ function LogPanel({ svc, p, frame, onClose, findRef }: { svc: ServiceStatus; p: 
 
 // ── services view ──────────────────────────────────────────────────────────────
 
-function ServicesView(props: {
-  snap: Snapshot;
-  p: Palette;
-  frame: number;
-  selected: string | null;
-  setSelected: (n: string) => void;
-  panel: boolean;
-  setPanel: (v: boolean) => void;
-  findRef: React.RefObject<HTMLInputElement>;
-}) {
-  const { snap, p, frame } = props;
+function Tiles({ snap }: { snap: Snapshot }) {
+  return (
+    <section className="tiles">
+      {TILES.map(({ state, also }) => {
+        const n = [state, ...(also ?? [])].reduce((sum, s) => sum + (snap.counts[s] ?? 0), 0);
+        return (
+          <div key={state} className={`tile ${n ? '' : 'zero'}`}>
+            <div className="tile-value">{n}</div>
+            <div className="tile-label">
+              <span className="tile-glyph" style={{ color: `var(--s-${state})` }}>
+                {GLYPH[state === 'starting' ? 'queued' : state]}
+              </span>
+              {LABEL[state]}
+            </div>
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+function ServicesView(props: { snap: Snapshot; frame: number; live: boolean; selected: string | null; cursor: string | null; select: (n: string | null) => void }) {
+  const { snap, frame, live } = props;
+  const [filter, setFilter] = useState('');
   const byName = new Map(snap.services.map((s) => [s.name, s]));
-  const sel = props.selected ? byName.get(props.selected) : undefined;
+  const anyRunning = snap.services.some((s) => running(s) || s.state === 'crashed');
+
   if (!snap.services.length) {
     return (
-      <div className="list">
-        <div className="empty">
-          <span className="cmd">serverstart add</span>
-          <span className="muted">register the project in the current directory</span>
-          <span className="cmd">serverstart install-skill</span>
-          <span className="muted">let Claude Code register projects</span>
+      <section className="card empty">
+        <h2>No services yet</h2>
+        <p className="muted">Register a project from its folder, or let Claude Code do it.</p>
+        <div className="cmd-row">
+          <code>serverstart add</code>
+          <span className="muted">detects the command, port and runtime</span>
         </div>
-      </div>
+        <div className="cmd-row">
+          <code>serverstart install-skill</code>
+          <span className="muted">teaches Claude Code to register new apps</span>
+        </div>
+      </section>
     );
   }
+
+  const q = filter.toLowerCase();
+  const visible = (n: string) => !q || n.toLowerCase().includes(q) || (byName.get(n)?.group ?? []).some((g) => g.toLowerCase().includes(q));
+
   return (
-    <div className="main">
-      <div className="list">
-        <table>
+    <>
+      <Tiles snap={snap} />
+      <section className="card">
+        <div className="card-head">
+          <h2>Services</h2>
+          <div className="search">
+            <Icon d={I.search} size={14} />
+            <input placeholder="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
+          </div>
+          <span className="spacer" />
+          <button className="btn" disabled={!live || !anyRunning} onClick={() => void post('/api/down')}>
+            <Icon d={I.stop} size={12} fill /> Stop all
+          </button>
+          <button className="btn primary" disabled={!live} onClick={() => void post('/api/up')}>
+            <Icon d={I.play} size={12} fill /> Start default set
+          </button>
+        </div>
+        <table className="services">
           <thead>
             <tr>
-              <th />
-              <th>NAME</th>
-              <th>STATE</th>
-              <th>PORT</th>
+              <th className="c-star" />
+              <th>Service</th>
+              <th>Status</th>
+              <th>Port</th>
               <th className="wide">PID</th>
-              <th className="wide">RUNTIME</th>
-              <th className="right">UPTIME</th>
+              <th className="wide">Runtime</th>
+              <th className="num">Uptime</th>
+              <th className="c-actions" />
             </tr>
           </thead>
           <tbody>
-            {snap.groups.map((g) => (
-              <React.Fragment key={g.group ?? '__none'}>
-                <tr className="group">
-                  <td colSpan={7}>{g.group ? g.group.toUpperCase() : 'UNGROUPED'}</td>
-                </tr>
-                {g.names.map((n) => {
-                  const s = byName.get(n);
-                  if (!s) return null;
-                  const isSel = n === props.selected;
-                  const time = s.state === 'ready' ? uptime(s.uptime_s) : s.state === 'starting' || s.state === 'stopping' ? uptime(s.elapsed_s ?? null) : '';
-                  return (
-                    <React.Fragment key={n}>
-                      <tr
-                        className={`svc ${isSel ? 'sel' : ''}`}
-                        onClick={() => {
-                          if (isSel) props.setPanel(!props.panel);
-                          else {
-                            props.setSelected(n);
-                            props.setPanel(true);
-                          }
-                        }}
-                      >
-                        <td>
+            {snap.groups.map((g) => {
+              const names = g.names.filter(visible);
+              if (!names.length) return null;
+              return (
+                <React.Fragment key={g.group ?? '__none'}>
+                  <tr className="group-row">
+                    <td colSpan={8}>{g.group ?? 'Ungrouped'}</td>
+                  </tr>
+                  {names.map((n) => {
+                    const s = byName.get(n);
+                    if (!s) return null;
+                    const sel = n === props.selected;
+                    const focused = !props.selected && n === props.cursor;
+                    const time = s.state === 'ready' ? uptime(s.uptime_s) : s.state === 'starting' || s.state === 'stopping' ? uptime(s.elapsed_s ?? null) : '';
+                    const implied = snap.implied[n];
+                    return (
+                      <tr key={n} className={`svc ${sel ? 'sel' : ''} ${focused ? 'focus' : ''}`} onClick={() => props.select(sel ? null : n)}>
+                        <td className="c-star">
                           <button
-                            className={`star ${s.default ? '' : 'off'}`}
-                            title={s.default ? 'in default set' : 'not in default set'}
+                            className={`star ${s.default ? 'on' : ''}`}
+                            title={s.default ? 'In the default set' : implied ? `Starts with ${implied}` : 'Not in the default set'}
+                            aria-label="Toggle default set"
+                            disabled={!live}
                             onClick={(e) => {
                               e.stopPropagation();
                               void post(`/api/services/${n}/default`, { value: !s.default });
                             }}
                           >
-                            ★
+                            <Icon d={I.star} size={15} fill={s.default} />
                           </button>
                         </td>
-                        <td className="name name-cell">{s.name}</td>
                         <td>
-                          <StateCell s={s.state} p={p} frame={frame} />
+                          <div className="svc-name">{s.name}</div>
+                          {s.state === 'crashed' && s.error && <div className="svc-error mono">{s.error}</div>}
+                          {s.state === 'blocked' && s.blocked_by && (
+                            <div className="svc-sub">
+                              <Icon d={I.link} size={12} /> {s.blocked_by} <span style={{ color: 'var(--s-crashed)' }}>{GLYPH.crashed}</span>
+                            </div>
+                          )}
                         </td>
-                        <td>{s.port ? <span className="port">{s.port}</span> : <span className="faint">–</span>}</td>
-                        <td className="wide">{s.pid ? <span className="muted">{s.pid}</span> : <span className="faint">–</span>}</td>
-                        <td className="wide" style={{ color: runtimeColor(p, s.runtime) }}>
-                          {s.runtime}
+                        <td>
+                          <StatusPill s={s.state} frame={frame} />
                         </td>
-                        <td className="right" style={{ color: s.state === 'ready' ? p.muted : p.states[s.state] }}>
-                          {time}
+                        <td className="mono">{s.port ?? <span className="faint">–</span>}</td>
+                        <td className="mono wide muted">{s.pid ?? <span className="faint">–</span>}</td>
+                        <td className="wide muted">{s.runtime}</td>
+                        <td className="num muted mono">{time}</td>
+                        <td className="c-actions">
+                          <div className="row-actions">
+                            {running(s) ? (
+                              <IconButton icon={I.stop} label="Stop" disabled={!live} onClick={() => void post(`/api/services/${n}/stop`)} />
+                            ) : (
+                              <IconButton icon={I.play} label="Start" disabled={!live || s.state === 'stopping'} onClick={() => void post(`/api/services/${n}/start`)} />
+                            )}
+                            {s.state !== 'external' && <IconButton icon={I.restart} label="Restart" disabled={!live} onClick={() => void post(`/api/services/${n}/restart`)} />}
+                            <IconButton icon={I.open} label="Open in browser" disabled={!s.url} onClick={() => window.open(s.url!, '_blank')} />
+                            <IconButton icon={I.logs} label="Logs" onClick={() => props.select(n)} />
+                          </div>
                         </td>
                       </tr>
-                      {s.state === 'crashed' && s.error && (
-                        <tr className={`sub ${isSel ? 'sel' : ''}`}>
-                          <td />
-                          <td colSpan={6}>
-                            <span className="tree">└ </span>
-                            <span className="err">{s.error}</span>
-                          </td>
-                        </tr>
-                      )}
-                      {s.state === 'blocked' && s.blocked_by && (
-                        <tr className="sub">
-                          <td />
-                          <td colSpan={6}>
-                            <span className="tree">└ </span>
-                            <span className="name">{s.blocked_by}</span> <span style={{ color: p.states.crashed }}>✕</span>
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-              </React.Fragment>
-            ))}
+                    );
+                  })}
+                </React.Fragment>
+              );
+            })}
           </tbody>
         </table>
-      </div>
-      {props.panel && sel && <LogPanel svc={sel} p={p} frame={frame} onClose={() => props.setPanel(false)} findRef={props.findRef} />}
-    </div>
-  );
-}
-
-function ActionBar({ snap, sel, p, live }: { snap: Snapshot; sel?: ServiceStatus; p: Palette; live: boolean }) {
-  const r = snap.result;
-  const disabled = !live || !sel;
-  return (
-    <div className="actions">
-      {sel && sel.state !== 'external' && (
-        <button className="btn" disabled={disabled} onClick={() => void post(`/api/services/${sel.name}/restart`)}>
-          [restart]
-        </button>
-      )}
-      {sel && sel.state !== 'stopping' && (
-        <button className="btn" disabled={disabled} onClick={() => void post(`/api/services/${sel.name}/${canStop(sel) ? 'stop' : 'start'}`)}>
-          {canStop(sel) ? '[stop]' : '[start]'}
-        </button>
-      )}
-      {sel?.url && (
-        <button className="btn" disabled={disabled} onClick={() => window.open(sel.url!, '_blank')}>
-          [open]
-        </button>
-      )}
-      {sel && (
-        <button className="btn" disabled={disabled} onClick={() => void post(`/api/services/${sel.name}/default`, { value: !sel.default })}>
-          {sel.default ? '[★ remove default]' : '[★ default]'}
-        </button>
-      )}
-      {r && (
-        <span className="result">
-          <span style={{ color: r.level === 'ok' ? p.ok : r.level === 'err' ? p.err : p.star }}>{r.level === 'ok' ? '✓' : r.level === 'err' ? '✕' : '★'}</span>{' '}
-          <span className="name">{r.text.split('   ')[0]}</span>
-          <span className={r.level === 'err' ? 'err' : 'muted'}>{'   ' + r.text.split('   ').slice(1).join('   ')}</span>
-        </span>
-      )}
-    </div>
+      </section>
+    </>
   );
 }
 
 // ── settings view ──────────────────────────────────────────────────────────────
 
-function SettingsView({ snap, p, live }: { snap: Snapshot; p: Palette; live: boolean }) {
+function SettingsView({ snap, live }: { snap: Snapshot; live: boolean }) {
   const [login, setLogin] = useState<{ ok: boolean; message: string } | 'busy' | null>(null);
   const set = async (key: string, value: unknown) => {
     if (key === 'start_on_login' || key === 'open_dashboard_on_login') setLogin('busy');
@@ -451,119 +488,141 @@ function SettingsView({ snap, p, live }: { snap: Snapshot; p: Palette; live: boo
   };
   const byName = new Map(snap.services.map((s) => [s.name, s]));
   const st = snap.settings;
-  const box = (on: boolean | 'implied') => <span className={`box ${on === 'implied' ? 'implied' : on ? 'on' : 'off'}`}>{on === 'implied' ? '[+]' : on ? '[✓]' : '[ ]'}</span>;
-  const cycle = (opts: string[], cur: string, dir: number) => opts[(Math.max(0, opts.indexOf(cur)) + dir + opts.length) % opts.length];
 
   return (
     <div className="settings">
-      <div className="card">
-        <div className="heading">DEFAULT SET</div>
-        {!snap.services.length && <div className="muted">0 services</div>}
+      <section className="card">
+        <div className="card-head">
+          <h2>Default set</h2>
+        </div>
+        <p className="card-desc muted">
+          What <code>serverstart</code> starts with no arguments.
+        </p>
+        {!snap.services.length && <p className="muted pad">No services yet</p>}
         {snap.groups.map((g) => (
-          <div key={g.group ?? '__none'}>
-            <div className="glabel">{g.group ? g.group.toUpperCase() : 'UNGROUPED'}</div>
+          <div key={g.group ?? '__none'} className="check-group">
+            <div className="group-label">{g.group ?? 'Ungrouped'}</div>
             {g.names.map((n) => {
               const s = byName.get(n)!;
               const by = snap.implied[n];
               return (
-                <button key={n} className="check" disabled={!live} onClick={() => void post(`/api/services/${n}/default`, { value: !s.default })}>
-                  {box(s.default ? true : by ? 'implied' : false)}
-                  <span className="label" style={{ width: 180 }}>
-                    {n}
-                  </span>
-                  <span className="port" style={{ width: 50 }}>
-                    {s.port ?? ''}
-                  </span>
+                <label key={n} className="check-row">
+                  <input type="checkbox" checked={s.default} disabled={!live} onChange={() => void post(`/api/services/${n}/default`, { value: !s.default })} />
+                  <span className="check-name">{n}</span>
+                  {s.port && <span className="mono muted">:{s.port}</span>}
                   {by && !s.default && (
-                    <span>
-                      <span className="muted">← </span>
-                      {by}
+                    <span className="chip" title={`Starts anyway because ${by} depends on it`}>
+                      <Icon d={I.link} size={12} /> {by}
                     </span>
                   )}
-                </button>
+                </label>
               );
             })}
           </div>
         ))}
-      </div>
-      <div className="card">
-        <div className="heading">GENERAL</div>
-        <button className="check" disabled={!live} onClick={() => void set('start_on_login', !st.start_on_login)}>
-          {box(st.start_on_login)}
-          <span className="label">Start on login</span>
-          {login === 'busy' && <span style={{ color: p.accent }}>LaunchAgent</span>}
-          {login && login !== 'busy' && <span style={{ color: login.ok ? p.ok : p.err }}>{(login.ok ? '✓ ' : '✕ ') + login.message}</span>}
-        </button>
-        <button className="check" disabled={!live || !st.start_on_login} onClick={() => void set('open_dashboard_on_login', !st.open_dashboard_on_login)}>
-          {box(st.open_dashboard_on_login)}
-          <span className="label">Open dashboard on login</span>
-        </button>
-        <button className="check" disabled={!live} onClick={() => void set('new_services_default', !st.new_services_default)}>
-          {box(st.new_services_default)}
-          <span className="label">New services join default set</span>
-        </button>
-        <div className="stepper">
-          <span className="label">Ready timeout</span>
-          <button className="btn" disabled={!live} onClick={() => void set('ready_timeout', cycle(TIMEOUTS, String(st.ready_timeout), -1))}>
-            [-]
-          </button>
-          <span className="name" style={{ width: 48, textAlign: 'center' }}>
-            {String(st.ready_timeout)}
-          </span>
-          <button className="btn" disabled={!live} onClick={() => void set('ready_timeout', cycle(TIMEOUTS, String(st.ready_timeout), 1))}>
-            [+]
-          </button>
+      </section>
+      <section className="card">
+        <div className="card-head">
+          <h2>General</h2>
         </div>
-        <div className="stepper">
-          <span className="label">Shell</span>
-          <select value={st.shell} disabled={!live} onChange={(e) => void set('shell', e.target.value)}>
-            {[...new Set([st.shell, ...SHELLS])].map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
+        <div className="setting">
+          <div>
+            <div className="setting-name">Start on login</div>
+            <div className="setting-desc muted">Run the default set once when you log in.</div>
+            {login === 'busy' && <div className="setting-result muted">Installing LaunchAgent</div>}
+            {login && login !== 'busy' && <div className={`setting-result ${login.ok ? 'ok' : 'err'}`}>{login.message}</div>}
+          </div>
+          <Switch on={st.start_on_login} disabled={!live} label="Start on login" onChange={(v) => void set('start_on_login', v)} />
+        </div>
+        <div className={`setting ${st.start_on_login ? '' : 'disabled'}`}>
+          <div>
+            <div className="setting-name">Open dashboard on login</div>
+            <div className="setting-desc muted">Also open a Terminal window with the dashboard.</div>
+          </div>
+          <Switch on={st.open_dashboard_on_login} disabled={!live || !st.start_on_login} label="Open dashboard on login" onChange={(v) => void set('open_dashboard_on_login', v)} />
+        </div>
+        <div className="setting">
+          <div>
+            <div className="setting-name">New services join the default set</div>
+          </div>
+          <Switch on={st.new_services_default} disabled={!live} label="New services join the default set" onChange={(v) => void set('new_services_default', v)} />
+        </div>
+        <div className="setting">
+          <div>
+            <div className="setting-name">Ready timeout</div>
+            <div className="setting-desc muted">How long a service may take to become ready.</div>
+          </div>
+          <select value={String(st.ready_timeout)} disabled={!live} onChange={(e) => void set('ready_timeout', e.target.value)}>
+            {[...new Set([String(st.ready_timeout), ...TIMEOUTS])].map((t) => (
+              <option key={t}>{t}</option>
             ))}
           </select>
         </div>
-      </div>
+        <div className="setting">
+          <div>
+            <div className="setting-name">Shell</div>
+            <div className="setting-desc muted">Commands run as a login shell, so your PATH and version managers apply.</div>
+          </div>
+          <select value={st.shell} disabled={!live} onChange={(e) => void set('shell', e.target.value)}>
+            {[...new Set([st.shell, ...SHELLS])].map((s) => (
+              <option key={s}>{s}</option>
+            ))}
+          </select>
+        </div>
+      </section>
     </div>
   );
 }
 
-// ── prompt ─────────────────────────────────────────────────────────────────────
+// ── prompt & toast ─────────────────────────────────────────────────────────────
 
 function PromptModal({ prompt }: { prompt: Snapshot['prompts'][number] }) {
   const answer = (kill: boolean) => void post(`/api/prompts/${prompt.id}`, { kill });
+  const leaveRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
+    leaveRef.current?.focus();
     const on = (e: KeyboardEvent) => {
       if (e.key === 'y' || e.key === 'Y') answer(true);
-      else if (e.key === 'n' || e.key === 'N' || e.key === 'Escape' || e.key === 'Enter') answer(false);
+      else if (e.key === 'n' || e.key === 'N' || e.key === 'Escape') answer(false);
+      else return;
       e.stopPropagation();
+      e.preventDefault();
     };
     window.addEventListener('keydown', on, true);
     return () => window.removeEventListener('keydown', on, true);
   }, [prompt.id]);
   return (
     <div className="modal-bg">
-      <div className="modal">
-        <div className="title">Port {prompt.port} in use</div>
-        <div>
-          <span className="muted">PID </span>
-          {prompt.holder.pid}
-          {'   '}
-          {prompt.holder.command}
+      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div className="modal-icon">
+          <Icon d={I.alert} size={20} />
         </div>
-        <div style={{ marginTop: 12 }}>
-          Kill {prompt.holder.pid} and start {prompt.service}?
-        </div>
-        <div className="row">
-          <button className="btn" onClick={() => answer(true)}>
-            [y kill and start]
+        <h3 id="modal-title">Port {prompt.port} is in use</h3>
+        <p>
+          <span className="mono">{prompt.holder.command}</span> (PID <span className="mono">{prompt.holder.pid}</span>) is listening on it, and ServerStart didn't start it.
+        </p>
+        <p className="muted">Kill it and start {prompt.service}?</p>
+        <div className="modal-actions">
+          <button className="btn" ref={leaveRef} onClick={() => answer(false)}>
+            Leave it
           </button>
-          <button className="btn" onClick={() => answer(false)} autoFocus>
-            [N leave it]
+          <button className="btn danger" onClick={() => answer(true)}>
+            Kill and start
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function Toast({ result }: { result: Snapshot['result'] }) {
+  if (!result) return null;
+  const [name, ...rest] = result.text.split('   ');
+  return (
+    <div className={`toast ${result.level}`} role="status">
+      <span className="toast-dot" />
+      <strong>{name}</strong>
+      <span className="muted">{rest.join(' ')}</span>
     </div>
   );
 }
@@ -571,47 +630,47 @@ function PromptModal({ prompt }: { prompt: Snapshot['prompts'][number] }) {
 // ── app ────────────────────────────────────────────────────────────────────────
 
 function App() {
-  const p = usePalette();
+  usePalette();
   const { snap, live } = useSnapshot();
   const [tab, setTab] = useState<'services' | 'settings'>('services');
   const [selected, setSelected] = useState<string | null>(null);
-  const [panel, setPanel] = useState(false);
+  const [cursor, setCursor] = useState<string | null>(null);
   const findRef = useRef<HTMLInputElement>(null);
   const spinning = !!snap && (snap.docker !== null || snap.services.some((s) => s.state === 'starting' || s.state === 'stopping'));
   const frame = useFrame(spinning);
-
   const order = useMemo(() => (snap ? snap.groups.flatMap((g) => g.names) : []), [snap]);
-  useEffect(() => {
-    if (!selected && order.length) setSelected(order[0]);
-  }, [order, selected]);
   const sel = snap?.services.find((s) => s.name === selected);
 
   const onKey = useCallback(
     (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'SELECT' || e.metaKey || e.ctrlKey) return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'SELECT' || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === ',') return setTab((t) => (t === 'settings' ? 'services' : 'settings'));
       if (tab !== 'services' || !snap) return;
-      const i = selected ? order.indexOf(selected) : -1;
-      if (e.key === 'ArrowDown' || e.key === 'j') setSelected(order[Math.min(order.length - 1, i + 1)]);
-      else if (e.key === 'ArrowUp' || e.key === 'k') setSelected(order[Math.max(0, i - 1)]);
-      else if (e.key === 'Enter') setPanel((v) => !v);
-      else if (e.key === 'Escape') setPanel(false);
-      else if (!sel || !live) return;
-      else if (e.key === 'r' && sel.state !== 'external') void post(`/api/services/${sel.name}/restart`);
-      else if (e.key === 's' && sel.state !== 'stopping') void post(`/api/services/${sel.name}/${canStop(sel) ? 'stop' : 'start'}`);
-      else if (e.key === 'o' && sel.url) window.open(sel.url, '_blank');
-      else if (e.key === 'd') void post(`/api/services/${sel.name}/default`, { value: !sel.default });
+      const curName = selected ?? cursor ?? order[0];
+      const i = curName ? order.indexOf(curName) : -1;
+      const move = (n: string | undefined) => {
+        if (!n) return;
+        setCursor(n);
+        if (selected) setSelected(n);
+      };
+      const cur = snap.services.find((s) => s.name === curName);
+      if (e.key === 'ArrowDown' || e.key === 'j') move(order[Math.min(order.length - 1, i + 1)]);
+      else if (e.key === 'ArrowUp' || e.key === 'k') move(order[Math.max(0, i - 1)]);
+      else if (e.key === 'Enter' && curName) setSelected((x) => (x ? null : curName));
+      else if (e.key === 'Escape') setSelected(null);
+      else if (!cur || !live) return;
+      else if (e.key === 'r' && cur.state !== 'external') void post(`/api/services/${cur.name}/restart`);
+      else if (e.key === 's') void post(`/api/services/${cur.name}/${running(cur) ? 'stop' : 'start'}`);
+      else if (e.key === 'o' && cur.url) window.open(cur.url, '_blank');
+      else if (e.key === 'd') void post(`/api/services/${cur.name}/default`, { value: !cur.default });
       else if (e.key === '/') {
-        if (findRef.current) findRef.current.focus();
-        else {
-          setPanel(true);
-          setTimeout(() => findRef.current?.focus(), 50);
-        }
-        e.preventDefault();
+        if (!selected) setSelected(cur.name);
+        setTimeout(() => findRef.current?.focus(), 50);
       } else return;
       e.preventDefault();
     },
-    [tab, snap, order, selected, sel, live],
+    [tab, snap, order, selected, cursor, live],
   );
   useEffect(() => {
     window.addEventListener('keydown', onKey);
@@ -619,36 +678,49 @@ function App() {
   }, [onKey]);
 
   return (
-    <div className={`app ${live ? '' : 'offline'}`}>
-      <header className="top">
-        <div className="top-row">
-          <span className="brand">ServerStart</span>
-          <span className="path">{snap?.config ?? ''}</span>
-          <span className="spacer" />
-          {live ? (
-            <span className="conn live">● LIVE</span>
-          ) : (
-            <span>
-              <span className="conn offline">● OFFLINE</span>
-              {'   '}
-              <span className="cmd">serverstart web</span>
-            </span>
-          )}
+    <div className={`app ${live ? '' : 'offline'} ${sel && tab === 'services' ? 'with-drawer' : ''}`}>
+      <header className="appbar">
+        <div className="brand">
+          <span className="logo">
+            <Icon d={I.play} size={11} fill />
+          </span>
+          ServerStart
         </div>
-        <div className="counts">{snap && <Counts snap={snap} p={p} frame={frame} />}</div>
         <nav className="tabs">
-          <button className={`tab ${tab === 'services' ? 'active' : ''}`} onClick={() => setTab('services')}>
-            SERVICES
+          <button className={tab === 'services' ? 'active' : ''} onClick={() => setTab('services')}>
+            Services
           </button>
-          <button className={`tab ${tab === 'settings' ? 'active' : ''}`} onClick={() => setTab('settings')}>
-            SETTINGS
+          <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}>
+            Settings
           </button>
         </nav>
+        <span className="spacer" />
+        {snap?.docker != null && (
+          <span className="docker muted">
+            <span className="spin">{SPINNER[frame % SPINNER.length]}</span> Starting Docker Desktop {snap.docker}s
+          </span>
+        )}
+        <span className="config mono" title={snap?.config}>
+          {snap && (snap.config.length > 48 ? '…' + snap.config.slice(-47) : snap.config)}
+        </span>
+        <span className={`conn ${live ? 'live' : 'off'}`}>
+          <span className="conn-dot" />
+          {live ? 'Live' : 'Disconnected'}
+        </span>
       </header>
-      {snap && tab === 'services' && <ServicesView snap={snap} p={p} frame={frame} selected={selected} setSelected={setSelected} panel={panel} setPanel={setPanel} findRef={findRef} />}
-      {snap && tab === 'settings' && <SettingsView snap={snap} p={p} live={live} />}
-      {snap && tab === 'services' && snap.services.length > 0 && <ActionBar snap={snap} sel={sel} p={p} live={live} />}
+      {!live && snap && (
+        <div className="banner">
+          Disconnected from ServerStart. Run <code>serverstart web</code> to reconnect.
+        </div>
+      )}
+      <main className="page">
+        {!snap && <div className="loading muted">Connecting</div>}
+        {snap && tab === 'services' && <ServicesView snap={snap} frame={frame} live={live} selected={selected} cursor={cursor} select={setSelected} />}
+        {snap && tab === 'settings' && <SettingsView snap={snap} live={live} />}
+      </main>
+      {tab === 'services' && sel && <LogDrawer svc={sel} frame={frame} live={live} onClose={() => setSelected(null)} findRef={findRef} />}
       {snap && live && snap.prompts[0] && <PromptModal prompt={snap.prompts[0]} />}
+      {snap && <Toast result={snap.result} />}
     </div>
   );
 }

@@ -8,7 +8,7 @@ import { loadConfig, type Config } from '../config/load.js';
 import { editConfig, setServiceField, setSetting } from '../config/write.js';
 import { SETTING_KEYS } from '../config/schema.js';
 import { EXIT, SSError } from '../errors.js';
-import { displayGroups, impliedDefaults } from '../graph.js';
+import { displayGroups, impliedDefaults, resolveTargets } from '../graph.js';
 import { applyLoginSetting } from '../login.js';
 import { c, pal } from '../output/term.js';
 import { logPath, tildify } from '../paths.js';
@@ -237,6 +237,21 @@ export function createHandler(live: Live, port: number) {
         if (action === 'stop') void live.engine.down([name]).then((o) => report(o, 'stopped'));
         if (action === 'restart') void live.engine.restart([name], { confirmKill: live.confirmKill }).then((o) => report(o, 'restarted'));
         return json(res, 202, { name, action });
+      }
+
+      if (req.method === 'POST' && (path === '/api/up' || path === '/api/down')) {
+        live.reload();
+        if (path === '/api/up') {
+          const names = resolveTargets(live.config, []);
+          void live.engine.up(names, { confirmKill: live.confirmKill }).then((o) => {
+            const failed = o.filter((x) => x.state !== 'ready').length;
+            live.result(failed ? `default set   ${failed} failed` : 'default set   ready', failed ? 'err' : 'ok');
+          });
+          return json(res, 202, { starting: names });
+        }
+        const running = live.statuses().filter((s) => s.state === 'ready' || s.state === 'starting' || s.state === 'crashed').map((s) => s.name);
+        void live.engine.down(running).then(() => live.result(`${running.length} services   stopped`, 'ok'));
+        return json(res, 202, { stopping: running });
       }
 
       const promptMatch = /^\/api\/prompts\/([0-9a-f-]+)$/.exec(path);
