@@ -16,10 +16,11 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "rm -rf dist && tsup",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "prepare": "npm run build"
   },
   "keywords": [
     "cli",

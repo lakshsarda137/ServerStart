@@ -7,7 +7,6 @@ export default defineConfig([
     format: ['esm'],
     platform: 'node',
     target: 'node20',
-    clean: true,
     banner: { js: '#!/usr/bin/env node' },
     // ink pulls in optional devtools; keep runtime deps external
     external: ['react-devtools-core'],
@@ -19,6 +18,7 @@ export default defineConfig([
     platform: 'browser',
     target: 'es2020',
     minify: true,
+    outExtension: () => ({ js: '.js' }),
     noExternal: [/.*/],
     define: { 'process.env.NODE_ENV': '"production"' },
     onSuccess: async () => {
