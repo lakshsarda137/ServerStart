@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
-import TextInput from 'ink-text-input';
 import { stringify as yamlStringify } from 'yaml';
 import type { Config } from '../config/load.js';
 import { NAME_RE, type RawService } from '../config/schema.js';
@@ -165,9 +164,11 @@ export function AddWizard(props: { config: Config; configOverride?: string; onDo
     }
   };
 
+  const [finalLines, setFinalLines] = useState<string[] | null>(null);
   const end = (code: number, lines: string[]) => {
     props.onDone(code, lines);
-    exit();
+    setFinalLines(lines); // the last frame is just the result
+    setTimeout(() => exit(), 30);
   };
 
   // option lists for choice fields
@@ -220,8 +221,12 @@ export function AddWizard(props: { config: Config; configOverride?: string; onDo
         else if (key.upArrow) back();
         return;
       }
+      // built-in text field
+      const tk = cur as Exclude<FieldKey, 'depends' | 'ready' | 'default'>;
       if (key.upArrow) back();
-      else if (key.downArrow) submitText();
+      else if (key.downArrow || key.return) submitText();
+      else if (key.backspace || key.delete) set(tk, (v[tk] as string).slice(0, -1));
+      else if (input && !key.ctrl && !key.meta && !key.tab) set(tk, ((v[tk] as string) + input).replace(/[\r\n]/g, ''));
     },
     { isActive: phase !== 'running' },
   );
@@ -229,6 +234,8 @@ export function AddWizard(props: { config: Config; configOverride?: string; onDo
   // ── render ──
   const stack = det.stack.length ? det.stack.map((s) => c(s.startsWith('python') || ['fastapi', 'flask', 'django', 'streamlit', 'uv'].includes(s) ? p.python : s === 'docker' ? p.docker : p.node, s)).join('   ') : c(p.muted, 'nothing detected');
   const header = boxLines({ title: 'Add service', right: tildify(resolvePath(v.cwd || '.')), lines: [[stack]], width: width - 2 });
+
+  if (finalLines) return <Lines lines={finalLines} />;
 
   if (phase === 'running') {
     return <Lines lines={[...header, '', ...result, '  ' + c(p.accent, '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'[frame % 10]) + ' ' + c(p.text, v.name) + '   ' + c(p.states.starting, 'starting')]} />;
@@ -298,16 +305,11 @@ export function AddWizard(props: { config: Config; configOverride?: string; onDo
     const src = sourceFor[k] ? c(p.muted, sourceFor[k]!) : '';
     const isText = ['name', 'cwd', 'cmd', 'compose', 'composeService', 'port', 'runtime', 'group'].includes(k);
     if (active && isText) {
+      const val = v[k as 'name'] as string;
       rows.push(
-        <Box key={k}>
-          <Text>{gutter + ' ' + mark + label}</Text>
-          <Box width={Math.max(10, width - 44)}>
-            <Text color={p.text}>
-              <TextInput value={v[k as 'name'] as string} onChange={(val) => set(k as 'name', val)} onSubmit={submitText} />
-            </Text>
-          </Box>
-          <Text>{'  ' + src}</Text>
-        </Box>,
+        <Text key={k} wrap="truncate-end">
+          {gutter + ' ' + mark + label + pad(c(p.text, val) + c(p.accent, '▏'), Math.max(10, width - 44)) + '  ' + src}
+        </Text>,
       );
     } else {
       const valColor = k === 'port' ? p.port : k === 'cwd' || k === 'compose' ? p.path : k === 'cmd' ? p.cmd : p.text;

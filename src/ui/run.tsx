@@ -62,9 +62,7 @@ export async function runAddWizard(opts: { config: Config; configOverride?: stri
     />,
   );
   await app.waitUntilExit();
-  app.clear();
-  app.cleanup();
-  for (const l of lines) process.stdout.write(l + '\n');
+  void lines; // already rendered as the final frame
   return code;
 }
 

@@ -8,7 +8,7 @@ import { c, pad, pal } from './output/term.js';
 import { home, tildify } from './paths.js';
 import { dockerInstalled, dockerVersion } from './runtime/docker.js';
 import { prefixLines, venvPath } from './runtime/env.js';
-import { listeners, portOpen } from './runtime/ports.js';
+import { listeners, portOpen, processCwd } from './runtime/ports.js';
 import { getStatuses } from './runtime/status.js';
 import { skillStatus } from './skill.js';
 
@@ -38,7 +38,7 @@ function firstWord(cmd: string): string {
   return words[i] ?? '';
 }
 
-async function serviceChecks(svc: Service, config: Config, held: Map<number, { pid: number; command: string }>): Promise<Check> {
+async function serviceChecks(svc: Service, config: Config, held: Map<number, { pid: number; command: string; cwd: string | null }>): Promise<Check> {
   const name = svc.name;
   const ok = (detail: string): Check => ({ section: 'SERVICES', name, status: 'pass', detail });
   const bad = (status: Level, detail: string, fix?: string): Check => ({ section: 'SERVICES', name, status, detail, fix });
@@ -62,6 +62,8 @@ async function serviceChecks(svc: Service, config: Config, held: Map<number, { p
     if (r.exitCode !== 0) return bad('fail', `${word} not found on PATH`, venv ? `${tildify(venv)}/bin/pip install ${word}` : `install ${word}`);
   }
   const h = svc.port ? held.get(svc.port) : undefined;
+  const mine = h?.cwd && (h.cwd === svc.cwd || h.cwd.startsWith(svc.cwd + '/'));
+  if (h && mine) return ok(`external   ${h.command} ${h.pid}`);
   if (h) return bad('warn', `port ${svc.port} in use   ${h.command} ${h.pid}`, `serverstart up ${name} --kill-port`);
   return ok([venv ? `${svc.python!.venv} found` : '', word ? `${word} found` : ''].filter(Boolean).join('   ') || 'ok');
 }
@@ -89,12 +91,12 @@ export async function collectChecks(config: Config): Promise<Check[]> {
 
   // who holds configured ports but isn't ours
   const statuses = await getStatuses(config);
-  const held = new Map<number, { pid: number; command: string }>();
+  const held = new Map<number, { pid: number; command: string; cwd: string | null }>();
   for (const s of statuses) {
-    if (s.state === 'external' && s.port && s.external) held.set(s.port, s.external);
+    if (s.state === 'external' && s.port && s.external) held.set(s.port, { ...s.external, cwd: await processCwd(s.external.pid) });
     else if (s.state === 'stopped' && s.port && (await portOpen(s.port, 200))) {
       const l = (await listeners(s.port))[0];
-      if (l) held.set(s.port, l);
+      if (l) held.set(s.port, { ...l, cwd: await processCwd(l.pid) });
     }
   }
   checks.push(...(await Promise.all(config.order.map((n) => serviceChecks(config.services[n], config, held)))));
