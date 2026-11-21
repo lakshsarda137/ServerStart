@@ -4,7 +4,8 @@ import { stringify as yamlStringify } from 'yaml';
 import type { Config } from '../config/load.js';
 import { NAME_RE, type RawService } from '../config/schema.js';
 import { addService, editConfig } from '../config/write.js';
-import { detect, type Detection } from '../detect/index.js';
+import { detect, kebab, type Detection } from '../detect/index.js';
+import { basename } from 'node:path';
 import { c, pad, pal, trunc } from '../output/term.js';
 import { resolvePath, tildify } from '../paths.js';
 import { Engine, type UpOutcome } from '../runtime/engine.js';
@@ -38,7 +39,7 @@ function fromDetection(d: Detection, cwd: string, config: Config): Values {
     composeService: s.docker?.service ?? '',
     port: s.port ? String(s.port) : '',
     runtime: s.node?.version ?? s.python?.venv ?? (s.python?.uv ? 'uv' : s.python?.conda ? `conda:${s.python.conda}` : ''),
-    group: '',
+    group: kebab(basename(cwd)), // every service belongs to a group (its project)
     depends: [],
     ready: 'port',
     readyValue: '',

@@ -6,7 +6,8 @@ import { stringify as yamlStringify } from 'yaml';
 import { loadConfig, type Config } from './config/load.js';
 import { SETTING_KEYS, jsonSchema, type RawService } from './config/schema.js';
 import { addService, atomicWrite, editConfig, readDocument, removeService, setServiceField, setSetting } from './config/write.js';
-import { detect } from './detect/index.js';
+import { detect, kebab } from './detect/index.js';
+import { basename, dirname } from 'node:path';
 import { EXIT, SSError, didYouMean } from './errors.js';
 import { groupEntry, groupNames, impliedDefaults, resolveTargets, withDependencies } from './graph.js';
 import { renderError, renderLs, renderStatus, upLine, upSummary, downLine, downSummary } from './output/format.js';
@@ -334,7 +335,9 @@ async function cmdAdd(flags: AddFlags, rawArgs: string[]): Promise<number> {
   if (flags.readyHttp) svc.ready = { http: flags.readyHttp };
   else if (flags.readyLog) svc.ready = { log: flags.readyLog };
   if (flags.dependsOn.length) svc.depends_on = flags.dependsOn;
-  if (flags.group.length) svc.group = flags.group.length === 1 ? flags.group[0] : flags.group;
+  // Every service belongs to a group (its project); default to the project folder's name.
+  const groups = flags.group.length ? flags.group : [kebab(basename(isDocker ? dirname(resolvePath(flags.dockerCompose ?? det!.service.docker!.compose)) : cwd!))];
+  svc.group = groups.length === 1 ? groups[0] : groups;
   if (flags.pythonVenv) svc.python = { venv: flags.pythonVenv };
   else if (flags.conda) svc.python = { conda: flags.conda };
   else if (flags.uv) svc.python = { uv: true };

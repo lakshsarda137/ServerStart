@@ -66,7 +66,7 @@ After a reboot, a bare `serverstart` brings everything back.
 | `serverstart logs <svc> [-f] [-n 100]` | Print or follow a service's log. |
 | `serverstart open <svc\|group> [-y]` | Open a service in the browser. For a group, opens its frontend (the service nothing else in the group depends on), starting the group first if needed. |
 | `serverstart ls` | List configured services. |
-| `serverstart add [flags]` | Register a service: a wizard on a terminal, or flags (see below). |
+| `serverstart add [flags]` | Register a service: a wizard on a terminal, or flags (see below). Every service gets a group (its project); without `--group` it's the project folder's name. |
 | `serverstart remove <svc> [-y]` | Stop and remove a service. |
 | `serverstart edit` | Open the config in `$EDITOR`, then validate it. |
 | `serverstart settings` | Settings screen: the default set and global settings. |

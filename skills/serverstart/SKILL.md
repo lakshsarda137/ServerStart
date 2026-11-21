@@ -6,7 +6,7 @@ description: Register, start, stop, or check local dev servers with the serverst
   servers are running.
 ---
 
-<!-- version: 2 -->
+<!-- version: 3 -->
 
 # ServerStart
 
@@ -31,7 +31,9 @@ other projects.
    serverstart add --name <kebab> --cwd <abs path> --cmd "<cmd>" --port <n> \
      [--group <project>] [--depends-on <svc>] [--python-venv .venv | --uv] [--node-version .nvmrc] --json
    ```
-   Use the project folder name as `--group` when a project has more than one service.
+   **Always pass `--group`**, even for a project with a single service: every project is its
+   own group (the dashboard shows each group as an app with Start, Stop and Open). Use a short
+   kebab-case name for the project, e.g. `resumebuilder`, `application-logger`.
 4. **Port clash:** if the result is `PORT_CONFLICT` (exit 4), take `error.suggested_port`, **change
    the app's own config to match** (`error.app_hint`, e.g. `server.port` in vite.config.ts, the
    uvicorn `--port` flag, `next dev -p`), then run `add` again with that port.
@@ -42,6 +44,10 @@ other projects.
 ## Rules
 
 - Never hand-edit `serverstart.yaml`. Use `serverstart add`, `remove`, `default`, `settings set`.
+- **Changing an existing registration** (group, command, port, ready check): run `serverstart ls
+  --json` to see its current fields, then `serverstart add --force` with the same name and the
+  complete set of flags you want. `--force` replaces the entry. Keep `--no-default` only if it
+  had `"default": false`.
 - Never run `serverstart down` (or `remove`) unless the user asks.
 - Never use `--kill-port` without the user's OK: it kills a process ServerStart didn't start.
 - **Default set:** new services follow `settings.new_services_default`. Don't pass `--no-default`
@@ -86,7 +92,7 @@ Report: `shop-web` on http://localhost:5173, `shop-api` on http://localhost:8000
 serverstart add --detect --dry-run --json --cwd /Users/me/code/blog
 # → cmd "npm run dev", port 3000; port_conflict says 3000 is taken, suggested 3001
 # change package.json: "dev": "next dev -p 3001"
-serverstart add --name blog --cwd /Users/me/code/blog --cmd "npm run dev" --port 3001 --json
+serverstart add --name blog --cwd /Users/me/code/blog --cmd "npm run dev" --port 3001 --group blog --json
 serverstart up blog --json
 ```
 
