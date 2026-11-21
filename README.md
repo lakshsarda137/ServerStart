@@ -64,7 +64,7 @@ After a reboot, a bare `serverstart` brings everything back.
 | `serverstart dash` | Open the dashboard without starting anything. |
 | `serverstart web [--port 7777] [--no-open]` | Serve the web dashboard on `127.0.0.1` until Ctrl-C. |
 | `serverstart logs <svc> [-f] [-n 100]` | Print or follow a service's log. |
-| `serverstart open <svc> [-y]` | Open the service in the browser. |
+| `serverstart open <svc\|group> [-y]` | Open a service in the browser. For a group, opens its frontend (the service nothing else in the group depends on), starting the group first if needed. |
 | `serverstart ls` | List configured services. |
 | `serverstart add [flags]` | Register a service: a wizard on a terminal, or flags (see below). |
 | `serverstart remove <svc> [-y]` | Stop and remove a service. |

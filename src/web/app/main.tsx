@@ -6,7 +6,7 @@ import type { ServiceState, ServiceStatus } from '../../runtime/types.js';
 interface Snapshot {
   config: string;
   services: ServiceStatus[];
-  groups: { group: string | null; names: string[] }[];
+  groups: { group: string | null; names: string[]; entry: string | null }[];
   counts: Partial<Record<ServiceState, number>>;
   settings: { shell: string; ready_timeout: string | number; new_services_default: boolean; start_on_login: boolean; open_dashboard_on_login: boolean };
   implied: Record<string, string>;
@@ -162,6 +162,25 @@ function IconButton(props: { icon: string; label: string; onClick: () => void; d
       }}
     >
       <Icon d={props.icon} fill={solid} size={solid ? 13 : 16} />
+    </button>
+  );
+}
+
+/** The large, colored Start / Stop button (rows, group headers, page header). */
+function RunButton(props: { mode: 'start' | 'stop' | 'running'; label?: string; title?: string; size?: 'lg'; disabled?: boolean; onClick: () => void }) {
+  const text = props.label ?? (props.mode === 'start' ? 'Start' : props.mode === 'stop' ? 'Stop' : 'Running');
+  return (
+    <button
+      className={`run-btn ${props.mode} ${props.size ?? ''}`}
+      title={props.title ?? text}
+      disabled={props.disabled}
+      onClick={(e) => {
+        e.stopPropagation();
+        props.onClick();
+      }}
+    >
+      {props.mode === 'running' ? <span className="run-dot" /> : <Icon d={props.mode === 'start' ? I.play : I.stop} size={11} fill />}
+      {text}
     </button>
   );
 }
@@ -347,7 +366,48 @@ function Tiles({ snap }: { snap: Snapshot }) {
   );
 }
 
-function ServicesView(props: { snap: Snapshot; frame: number; live: boolean; selected: string | null; cursor: string | null; select: (n: string | null) => void }) {
+const up = (s: ServiceStatus) => running(s) || s.state === 'external';
+
+/** A group is one app: start or stop all of it, and open its frontend (`entry`). */
+function GroupActions(props: { group: string; members: ServiceStatus[]; entry: ServiceStatus | null; live: boolean; onOpen: (group: string, entry: ServiceStatus) => void }) {
+  const { group, members, entry, live } = props;
+  const ours = members.some(running);
+  const allUp = members.length > 0 && members.every(up);
+  return (
+    <div className="group-actions">
+      {ours ? (
+        <RunButton mode="stop" label={`Stop ${group}`} disabled={!live} onClick={() => void post(`/api/groups/${encodeURIComponent(group)}/stop`)} />
+      ) : allUp ? (
+        <RunButton mode="running" label="Running" title="Already running outside ServerStart" disabled={!live} onClick={() => void post(`/api/groups/${encodeURIComponent(group)}/start`)} />
+      ) : (
+        <RunButton mode="start" label={`Start ${group}`} disabled={!live} onClick={() => void post(`/api/groups/${encodeURIComponent(group)}/start`)} />
+      )}
+      {entry?.url && (
+        <button
+          className="btn open-app"
+          disabled={!live}
+          title={allUp ? `Open ${entry.url}` : `Start ${group}, then open ${entry.url}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            props.onOpen(group, entry);
+          }}
+        >
+          <Icon d={I.open} size={14} /> Open {group}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ServicesView(props: {
+  snap: Snapshot;
+  frame: number;
+  live: boolean;
+  selected: string | null;
+  cursor: string | null;
+  select: (n: string | null) => void;
+  openWhenReady: (group: string, entry: ServiceStatus) => void;
+}) {
   const { snap, frame, live } = props;
   const [filter, setFilter] = useState('');
   const byName = new Map(snap.services.map((s) => [s.name, s]));
@@ -384,12 +444,8 @@ function ServicesView(props: { snap: Snapshot; frame: number; live: boolean; sel
             <input placeholder="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
           </div>
           <span className="spacer" />
-          <button className="btn" disabled={!live || !anyRunning} onClick={() => void post('/api/down')}>
-            <Icon d={I.stop} size={12} fill /> Stop all
-          </button>
-          <button className="btn primary" disabled={!live} onClick={() => void post('/api/up')}>
-            <Icon d={I.play} size={12} fill /> Start default set
-          </button>
+          <RunButton mode="stop" size="lg" label="Stop all" disabled={!live || !anyRunning} onClick={() => void post('/api/down')} />
+          <RunButton mode="start" size="lg" label="Start default set" disabled={!live} onClick={() => void post('/api/up')} />
         </div>
         <table className="services">
           <thead>
@@ -411,7 +467,12 @@ function ServicesView(props: { snap: Snapshot; frame: number; live: boolean; sel
               return (
                 <React.Fragment key={g.group ?? '__none'}>
                   <tr className="group-row">
-                    <td colSpan={8}>{g.group ?? 'Ungrouped'}</td>
+                    <td colSpan={8}>
+                      <div className="group-head">
+                        <span className="group-name">{g.group ?? 'Ungrouped'}</span>
+                        {g.group && <GroupActions group={g.group} members={g.names.map((m) => byName.get(m)!).filter(Boolean)} entry={g.entry ? byName.get(g.entry) ?? null : null} live={live} onOpen={props.openWhenReady} />}
+                      </div>
+                    </td>
                   </tr>
                   {names.map((n) => {
                     const s = byName.get(n);
@@ -461,17 +522,14 @@ function ServicesView(props: { snap: Snapshot; frame: number; live: boolean; sel
                         <td className="c-actions">
                           <div className="row-actions">
                             {running(s) ? (
-                              <IconButton icon={I.stop} label="Stop" disabled={!live} onClick={() => void post(`/api/services/${n}/stop`)} />
+                              <RunButton mode="stop" disabled={!live} onClick={() => void post(`/api/services/${n}/stop`)} />
+                            ) : s.state === 'external' && s.external?.same_project ? (
+                              <RunButton mode="running" title={`Already running outside ServerStart (PID ${s.external.pid})`} disabled={!live} onClick={() => void post(`/api/services/${n}/start`)} />
                             ) : (
-                              <IconButton
-                                icon={I.play}
-                                label={s.state === 'external' && s.external?.same_project ? `Already running (PID ${s.external.pid})` : 'Start'}
-                                disabled={!live || s.state === 'stopping'}
-                                onClick={() => void post(`/api/services/${n}/start`)}
-                              />
+                              <RunButton mode="start" disabled={!live || s.state === 'stopping'} onClick={() => void post(`/api/services/${n}/start`)} />
                             )}
                             {s.state !== 'external' && <IconButton icon={I.restart} label="Restart" disabled={!live} onClick={() => void post(`/api/services/${n}/restart`)} />}
-                            <IconButton icon={I.open} label="Open in browser" disabled={!s.url} onClick={() => window.open(s.url!, '_blank')} />
+                            <IconButton icon={I.open} label={s.url ? `Open ${s.url.replace(/^https?:\/\//, '')}` : 'No port or URL'} disabled={!s.url} onClick={() => window.open(s.url!, '_blank')} />
                             <IconButton icon={I.logs} label="Logs" onClick={() => props.select(n)} />
                           </div>
                         </td>
@@ -652,6 +710,41 @@ function App() {
   const order = useMemo(() => (snap ? snap.groups.flatMap((g) => g.names) : []), [snap]);
   const sel = snap?.services.find((s) => s.name === selected);
 
+  // "Open <group>": start the whole group if needed, then open its frontend once it's ready.
+  // The window opens immediately (popup blockers allow it only during the click).
+  const pendingOpen = useRef<{ name: string; url: string; win: Window | null; since: number } | null>(null);
+  const openWhenReady = useCallback(
+    (group: string, entry: ServiceStatus) => {
+      const members = snap?.groups.find((g) => g.group === group)?.names ?? [];
+      const allUp = members.every((m) => {
+        const s = snap?.services.find((x) => x.name === m);
+        return s && up(s);
+      });
+      if (allUp && up(entry)) {
+        window.open(entry.url!, '_blank');
+        return;
+      }
+      const win = window.open('about:blank', '_blank');
+      if (win) win.document.title = `Starting ${group}`;
+      pendingOpen.current = { name: entry.name, url: entry.url!, win, since: Date.now() };
+      void post(`/api/groups/${encodeURIComponent(group)}/start`);
+    },
+    [snap],
+  );
+  useEffect(() => {
+    const p = pendingOpen.current;
+    if (!p || !snap) return;
+    const s = snap.services.find((x) => x.name === p.name);
+    if (s && (s.state === 'ready' || s.state === 'external')) {
+      if (p.win) p.win.location.href = p.url;
+      else window.open(p.url, '_blank');
+      pendingOpen.current = null;
+    } else if ((s && (s.state === 'crashed' || s.state === 'blocked')) || Date.now() - p.since > 120000) {
+      p.win?.close();
+      pendingOpen.current = null;
+    }
+  }, [snap]);
+
   const onKey = useCallback(
     (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -726,7 +819,7 @@ function App() {
       )}
       <main className="page">
         {!snap && <div className="loading muted">Connecting</div>}
-        {snap && tab === 'services' && <ServicesView snap={snap} frame={frame} live={live} selected={selected} cursor={cursor} select={setSelected} />}
+        {snap && tab === 'services' && <ServicesView snap={snap} frame={frame} live={live} selected={selected} cursor={cursor} select={setSelected} openWhenReady={openWhenReady} />}
         {snap && tab === 'settings' && <SettingsView snap={snap} live={live} />}
       </main>
       {tab === 'services' && sel && <LogDrawer svc={sel} frame={frame} live={live} onClose={() => setSelected(null)} findRef={findRef} />}

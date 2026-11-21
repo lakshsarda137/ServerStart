@@ -8,7 +8,7 @@ import { SETTING_KEYS, jsonSchema, type RawService } from './config/schema.js';
 import { addService, atomicWrite, editConfig, readDocument, removeService, setServiceField, setSetting } from './config/write.js';
 import { detect } from './detect/index.js';
 import { EXIT, SSError, didYouMean } from './errors.js';
-import { impliedDefaults, resolveTargets, withDependencies } from './graph.js';
+import { groupEntry, groupNames, impliedDefaults, resolveTargets, withDependencies } from './graph.js';
 import { renderError, renderLs, renderStatus, upLine, upSummary, downLine, downSummary } from './output/format.js';
 import { applyTheme, c, detectColorMode, envTheme, pal, setColorMode } from './output/term.js';
 import { configPath, logPath, resolvePath, tildify } from './paths.js';
@@ -242,16 +242,25 @@ async function cmdLogs(name: string, opts: { follow?: boolean; lines: string }):
   return EXIT.OK;
 }
 
-async function cmdOpen(name: string, opts: { yes?: boolean }): Promise<number> {
+async function cmdOpen(target: string, opts: { yes?: boolean }): Promise<number> {
   const config = cfg();
-  const svc = requireService(config, name);
+  // A group opens its frontend: the service nothing else in the group depends on.
+  const isGroup = !config.services[target] && groupNames(config).includes(target);
+  const name = isGroup ? groupEntry(config, target) : target;
+  if (isGroup && !name) throw new SSError('USAGE', `group "${target}" has no service with a port or url`);
+  const svc = requireService(config, name!);
   const url = serviceUrl(svc);
   if (!url) throw new SSError('USAGE', `${name} has no port or url`, { hint: `serverstart edit` });
-  const st = (await getStatuses(config)).find((s) => s.name === name)!;
-  if (!['ready', 'starting', 'external'].includes(st.state)) {
-    const start = opts.yes || (interactive() ? await confirm(`${name} is ${st.state}. Start it?`, true) : false);
+  const statuses = await getStatuses(config);
+  const up = (n: string) => ['ready', 'starting', 'external'].includes(statuses.find((s) => s.name === n)?.state ?? 'stopped');
+  // opening needs the service and everything it depends on (for a group: the whole group)
+  const needed = isGroup ? withDependencies(config, resolveTargets(config, [target])) : withDependencies(config, [name!]);
+  const down = needed.filter((n) => !up(n));
+  if (down.length) {
+    const what = isGroup ? target : name!;
+    const start = opts.yes || (interactive() ? await confirm(`${down.join(', ')} ${down.length === 1 ? "isn't" : "aren't"} running. Start ${what}?`, true) : false);
     if (start) {
-      const code = await cmdUp([name], { dash: false });
+      const code = await cmdUp(isGroup ? [target] : [name!], { dash: false });
       if (code !== EXIT.OK) return code;
     }
   }
@@ -577,8 +586,8 @@ function buildProgram(): Command {
 
   program
     .command('open')
-    .description('open a service in the browser')
-    .argument('<service>')
+    .description("open a service, or a group's frontend, in the browser")
+    .argument('<service|group>')
     .option('-y, --yes', 'start it first without asking')
     .action(wrap((s: string, o: { yes?: boolean }) => cmdOpen(s, o)));
 

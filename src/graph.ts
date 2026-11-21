@@ -87,6 +87,21 @@ export function impliedDefaults(config: Config): Map<string, string> {
   return implied;
 }
 
+/**
+ * The service to open for a group: the one nothing else in the group depends on (the
+ * frontend, at the top of the dependency chain), preferring one with a URL.
+ */
+export function groupEntry(config: Config, group: string): string | null {
+  const members = config.order.filter((n) => config.services[n].groups.includes(group));
+  const top = members.filter((n) => !members.some((m) => config.services[m].dependsOn.includes(n)));
+  const withUrl = (ns: string[]) => ns.filter((n) => config.services[n].port || config.services[n].url);
+  return withUrl(top)[0] ?? withUrl(members)[0] ?? null;
+}
+
+export function groupNames(config: Config): string[] {
+  return [...new Set(config.order.flatMap((n) => config.services[n].groups))];
+}
+
 /** Dashboard order: grouped by first group (ungrouped last), dependency order within a group. */
 export function displayGroups(config: Config, names: string[] = config.order): { group: string | null; names: string[] }[] {
   const order = topoOrder(config, names);

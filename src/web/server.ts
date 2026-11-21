@@ -8,7 +8,7 @@ import { loadConfig, type Config } from '../config/load.js';
 import { editConfig, setServiceField, setSetting } from '../config/write.js';
 import { SETTING_KEYS } from '../config/schema.js';
 import { EXIT, SSError } from '../errors.js';
-import { displayGroups, impliedDefaults, resolveTargets } from '../graph.js';
+import { displayGroups, groupEntry, impliedDefaults, resolveTargets } from '../graph.js';
 import { applyLoginSetting } from '../login.js';
 import { c, pal } from '../output/term.js';
 import { logPath, tildify } from '../paths.js';
@@ -95,7 +95,7 @@ class Live {
     return {
       config: tildify(this.config.path),
       services,
-      groups: displayGroups(this.config).map((g) => ({ group: g.group, names: g.names })),
+      groups: displayGroups(this.config).map((g) => ({ group: g.group, names: g.names, entry: g.group ? groupEntry(this.config, g.group) : null })),
       counts: summarize(services),
       settings: this.config.settings.raw,
       implied: Object.fromEntries(implied),
@@ -257,6 +257,29 @@ export function createHandler(live: Live, port: number) {
         const running = live.statuses().filter((s) => s.state === 'ready' || s.state === 'starting' || s.state === 'crashed').map((s) => s.name);
         void live.engine.down(running).then(() => live.result(`${running.length} services   stopped`, 'ok'));
         return json(res, 202, { stopping: running });
+      }
+
+      const groupMatch = /^\/api\/groups\/([^/]+)\/(start|stop)$/.exec(path);
+      if (req.method === 'POST' && groupMatch) {
+        live.reload();
+        const group = decodeURIComponent(groupMatch[1]);
+        const names = resolveTargets(live.config, [group]);
+        if (groupMatch[2] === 'start') {
+          void live.engine.up(names, { confirmKill: live.confirmKill }).then((o) => {
+            const already = o.filter((x) => x.already_running).length;
+            const started = o.filter((x) => x.state === 'ready' && !x.already_running).length;
+            const failed = o.filter((x) => x.state !== 'ready');
+            const text =
+              already === o.length
+                ? `All ${already} already running`
+                : [started ? `${started} started` : '', already ? `${already} already running` : '', failed.length ? `${failed.map((f) => f.name).join(', ')} failed` : ''].filter(Boolean).join(', ');
+            live.result(`${group}   ${text}`, failed.length ? 'err' : started ? 'ok' : 'info');
+          });
+        } else {
+          const up = live.statuses().filter((s) => names.includes(s.name) && (s.state === 'ready' || s.state === 'starting' || s.state === 'crashed')).map((s) => s.name);
+          void live.engine.down(up).then(() => live.result(`${group}   stopped`, 'ok'));
+        }
+        return json(res, 202, { group, services: names });
       }
 
       const promptMatch = /^\/api\/prompts\/([0-9a-f-]+)$/.exec(path);
