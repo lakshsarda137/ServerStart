@@ -53,6 +53,8 @@ function detectNode(dir: string, d: Detection): boolean {
         : 'npm';
   const scripts = pkg.scripts ?? {};
   const script = scripts.dev ? 'dev' : scripts.start ? 'start' : undefined;
+  const pythonMarkers = ['pyproject.toml', 'requirements.txt', 'manage.py'].some((f) => existsSync(join(dir, f)));
+  if (!script && pythonMarkers) return false; // e.g. a package.json that only runs JS tests
   d.kind = 'node';
   if (script) {
     d.service.cmd = `${pm} run ${script}`;
@@ -100,7 +102,10 @@ function detectNode(dir: string, d: Detection): boolean {
     if (framework === 'astro') return `set server.port = ${p} in astro.config.mjs`;
     return `set PORT=${p} for the dev script`;
   };
-  if (pkg.name) d.name = kebab(pkg.name.replace(/^@[^/]+\//, ''));
+  if (pkg.name) {
+    d.name = kebab(pkg.name.replace(/^@[^/]+\//, ''));
+    d.sources.name = 'package.json';
+  }
   return true;
 }
 
@@ -136,7 +141,9 @@ function detectPython(dir: string, d: Detection): boolean {
     d.sources.cmd = hasManage ? 'manage.py' : src;
     d.portHint = (p) => `run "python manage.py runserver ${p}"`;
   } else if (dep('fastapi') || dep('uvicorn')) {
-    const file = findFile(dir, ['main.py', 'app.py', 'app/main.py', 'src/main.py', 'api.py', 'server.py'], /FastAPI\(|Starlette\(/) ?? 'main.py';
+    const subdirs = listDir(dir).filter((f) => !f.startsWith('.') && !['node_modules', 'venv', 'tests', 'test', 'dist', 'build'].includes(f) && existsSync(join(dir, f, '__init__.py')));
+    const candidates = ['main.py', 'app.py', 'api.py', 'server.py', ...subdirs.flatMap((sd) => ['main.py', 'app.py', 'api.py', 'server.py'].map((f) => `${sd}/${f}`)), 'src/main.py'];
+    const file = findFile(dir, candidates, /FastAPI\(|Starlette\(/) ?? 'main.py';
     const mod = file.replace(/\.py$/, '').replace(/\//g, '.');
     d.service.cmd = `uvicorn ${mod}:app --reload --port 8000`;
     d.service.port = 8000;

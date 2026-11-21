@@ -85,7 +85,7 @@ const STRONG = /\b[A-Z]\w*(?:Error|Exception)\b|^Error:|\bError: |Traceback \(mo
 const WEAK = /\berror\b|\bfailed\b|\bfatal\b|\bnot found\b|\bcannot\b|\bunable to\b/i;
 
 /** The most meaningful error line in some log text (PRD §6.3 step 5). */
-export function extractError(text: string): string | null {
+export function extractError(text: string, opts: { fallbackToLastLine?: boolean } = {}): string | null {
   const lines = stripAnsi(text)
     .split('\n')
     .map((l) => l.trim())
@@ -95,14 +95,14 @@ export function extractError(text: string): string | null {
   if (strong.length) return strong[strong.length - 1];
   const weak = lines.filter((l) => WEAK.test(l));
   if (weak.length) return weak[weak.length - 1];
-  return lines[lines.length - 1];
+  return opts.fallbackToLastLine === false ? null : lines[lines.length - 1];
 }
 
-export function errorSince(service: string, offset: number): string | null {
+export function errorSince(service: string, offset: number, opts: { fallbackToLastLine?: boolean } = {}): string | null {
   const path = logPath(service);
   const size = existsSync(path) ? statSync(path).size : 0;
   const from = Math.max(offset, size - 64 * 1024);
-  return extractError(readRange(path, from));
+  return extractError(readRange(path, from), opts);
 }
 
 /** Follow a file: calls `onData` with new text. Returns a stop function. */

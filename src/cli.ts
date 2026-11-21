@@ -121,7 +121,8 @@ async function cmdDown(targets: string[]): Promise<number> {
   const outcomes = interactive()
     ? ((await (await import('./ui/run.js')).runProgress({ engine, kind: 'down', names: toStop, run: () => engine.down(toStop) })) as Awaited<ReturnType<Engine['down']>>)
     : await engine.down(toStop);
-  const ports = outcomes.filter((o) => o.state === 'stopped').map((o) => config.services[o.name].port).filter((p): p is number => !!p);
+  const wasRunning = new Set(before.filter((s) => s.state === 'ready' || s.state === 'starting').map((s) => s.name));
+  const ports = outcomes.filter((o) => o.state === 'stopped' && wasRunning.has(o.name)).map((o) => config.services[o.name].port).filter((p): p is number => !!p);
   if (globals.json) printJson({ services: outcomes, ok: outcomes.every((o) => o.state !== 'failed') });
   else {
     if (!interactive()) for (const o of outcomes) if (!globals.quiet || o.state === 'failed') out(downLine(o));

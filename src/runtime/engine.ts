@@ -179,6 +179,8 @@ export class Engine extends EventEmitter<EngineEvents> {
     const startNo = (readState().starts[svc.name] ?? 0) + 1;
     const log = openLogForStart(svc.name, startNo);
     let exited = false;
+    let exitCode: number | null = null;
+    let exitSignal: string | null = null;
     let spawnError: string | null = null;
     const child = spawn(launch.file, launch.args, {
       cwd: launch.cwd,
@@ -191,7 +193,9 @@ export class Engine extends EventEmitter<EngineEvents> {
       spawnError = e.message;
       exited = true;
     });
-    child.on('exit', () => {
+    child.on('exit', (code, signal) => {
+      exitCode = code;
+      exitSignal = signal;
       exited = true;
     });
     child.unref();
@@ -218,17 +222,18 @@ export class Engine extends EventEmitter<EngineEvents> {
       if (rt) updateState((s) => void (s.runtimes[svc.name] = rt));
       if (rt) this.emit('change', svc.name, { ...(this.live.get(svc.name) ?? { state: 'starting' }), runtime: rt });
     });
-    return this.waitReady(svc, entry, t0, () => exited);
+    const exitInfo = () => (spawnError ? spawnError : exitSignal ? `killed by ${exitSignal}` : exitCode !== null ? `exited with code ${exitCode}` : null);
+    return this.waitReady(svc, entry, t0, () => exited, exitInfo);
   }
 
-  private async waitReady(svc: Service, entry: ProcEntry, t0: number, hasExited?: () => boolean): Promise<UpOutcome> {
+  private async waitReady(svc: Service, entry: ProcEntry, t0: number, hasExited?: () => boolean, exitInfo?: () => string | null): Promise<UpOutcome> {
     const timeout = this.config.settings.readyTimeoutMs;
     let lastTick = 0;
     while (true) {
       const dead = hasExited ? hasExited() : !isAlive(entry.pid);
       if (dead) {
         await sleep(100); // let the last output reach the log
-        const err = errorSince(svc.name, entry.logStart) ?? 'exited';
+        const err = errorSince(svc.name, entry.logStart, { fallbackToLastLine: false }) ?? exitInfo?.() ?? errorSince(svc.name, entry.logStart) ?? 'exited';
         return this.fail(svc, err, t0);
       }
       if (await checkReady(svc.ready, { service: svc.name, logStart: entry.logStart, startedAt: entry.startedAt })) {
