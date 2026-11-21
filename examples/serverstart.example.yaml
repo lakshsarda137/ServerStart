@@ -1,0 +1,52 @@
+# ServerStart config example. Real config: ~/.config/serverstart/serverstart.yaml
+# Edit with `serverstart edit`; full schema: `serverstart schema`.
+version: 1
+
+settings:
+  shell: zsh                    # commands run as `zsh -lc`, so your PATH, nvm, pyenv and conda work
+  ready_timeout: 60s
+  new_services_default: true    # newly added services join the default set
+  start_on_login: false         # run `serverstart up` once at login (LaunchAgent)
+  open_dashboard_on_login: false
+
+services:
+  # A database from a compose file. `down` uses `docker compose stop`, so data survives.
+  shop-db:
+    docker:
+      compose: ~/code/shop/compose.yaml
+      service: db
+    port: 5432
+    group: shop
+
+  # A FastAPI app in a venv, ready when /health answers.
+  shop-api:
+    cwd: ~/code/shop/api
+    cmd: uvicorn main:app --reload --port 8000
+    python:
+      venv: .venv               # or `conda: <env>`, or `uv: true`
+    env:
+      DATABASE_URL: postgres://localhost:5432/shop
+    env_file: .env              # values are never printed; only keys show in --json
+    port: 8000
+    ready:
+      http: http://localhost:8000/health   # or `log: "Uvicorn running"`; default is the port
+    depends_on: [shop-db]
+    group: shop
+
+  # A Vite frontend on a pinned Node version.
+  shop-web:
+    cwd: ~/code/shop/web
+    cmd: pnpm run dev
+    node:
+      version: .nvmrc
+    port: 5173
+    depends_on: [shop-api]
+    group: shop
+
+  # A standalone app that isn't started by a bare `serverstart`.
+  blog:
+    cwd: ~/code/blog
+    cmd: npm run dev
+    port: 3000
+    url: http://localhost:3000/admin   # what `serverstart open blog` opens
+    start_by_default: false

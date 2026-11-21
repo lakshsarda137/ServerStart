@@ -138,9 +138,10 @@ export function renderLs(config: Config): string {
   });
   if (plain()) {
     const nw = Math.max(18, ...rows.map(({ s }) => s.name.length + 2));
+    const dw = Math.max(32, ...rows.map(({ dir }) => dir.length + 2));
     return [
-      pad('NAME', nw) + pad('KIND', 9) + pad('PORT', 7) + pad('DEFAULT', 9) + pad('DIRECTORY', 32) + 'COMMAND',
-      ...rows.map(({ s, dir, cmd }) => (pad(s.name, nw) + pad(s.kind, 9) + pad(s.port ? String(s.port) : '-', 7) + pad(s.isDefault ? 'yes' : 'no', 9) + pad(dir, 32) + cmd).trimEnd()),
+      pad('NAME', nw) + pad('KIND', 9) + pad('PORT', 7) + pad('DEFAULT', 9) + pad('DIRECTORY', dw) + 'COMMAND',
+      ...rows.map(({ s, dir, cmd }) => (pad(s.name, nw) + pad(s.kind, 9) + pad(s.port ? String(s.port) : '-', 7) + pad(s.isDefault ? 'yes' : 'no', 9) + pad(dir, dw) + cmd).trimEnd()),
     ].join('\n');
   }
   const p = pal();
