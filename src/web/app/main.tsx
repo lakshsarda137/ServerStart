@@ -475,11 +475,17 @@ function ServicesView(props: {
             </tr>
           </thead>
           <tbody>
-            {snap.groups.map((g) => {
+            {snap.groups
+              .filter((g) => g.names.some(visible))
+              .map((g, gi) => {
               const names = g.names.filter(visible);
-              if (!names.length) return null;
               return (
                 <React.Fragment key={g.group ?? '__none'}>
+                  {gi > 0 && (
+                    <tr className="group-gap" aria-hidden>
+                      <td colSpan={8} />
+                    </tr>
+                  )}
                   <tr className="group-row">
                     <td className="c-star" />
                     <td colSpan={4} className="group-name">

@@ -550,7 +550,7 @@ mark {
 /* switch */
 .switch {
   width: 36px;
-  height: 20px;
+  height: 28px;
   border-radius: 999px;
   border: 0;
   background: var(--line);
@@ -953,4 +953,12 @@ tbody .group-row:first-child td {
 }
 .card-head .search {
   height: var(--ctl-h);
+}
+
+/* breathing room between groups */
+.services tr.group-gap td {
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: none;
 }
