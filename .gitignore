@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+
+# local planning docs (describe the author's machine and accounts)
+PRD.md
+UI.md
+
+# assistant instruction files
+CLAUDE.md
+AGENTS.md
+.claude/
+
+# personal config
+serverstart.yaml

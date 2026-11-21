@@ -1,0 +1,56 @@
+{
+  "name": "serverstart",
+  "version": "0.1.0",
+  "description": "Start all your local dev servers with one command, with a live terminal and web dashboard.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "serverstart": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "skills",
+    "examples"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "cli",
+    "dev-server",
+    "dashboard",
+    "ink",
+    "claude-code"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lakshsarda137/ServerStart.git"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "execa": "^9.6.1",
+    "ink": "^5.2.1",
+    "ink-text-input": "^6.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "yaml": "^2.9.1",
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.25.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "ink-testing-library": "^4.0.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  }
+}
