@@ -136,6 +136,7 @@ export async function getStatuses(config: Config, opts: { dockerMaxAgeMs?: numbe
   const ps = await psInfo(pids);
   const deadNow: Record<string, string | null> = {};
   const readyNow: Record<string, number> = {};
+  const staleCrashes: string[] = [];
 
   const results = await Promise.all(
     config.order.map(async (name) => {
@@ -170,12 +171,14 @@ export async function getStatuses(config: Config, opts: { dockerMaxAgeMs?: numbe
         return st;
       }
       const crash = state.crashed[name];
-      if (crash) {
+      const held = svc.port ? await portOpen(svc.port, 250) : false;
+      if (crash && !held) {
         st.state = 'crashed';
         st.error = crash.error;
         return st;
       }
-      if (svc.port && (await portOpen(svc.port, 250))) {
+      if (crash) staleCrashes.push(name); // something now serves the port; the old crash is stale
+      if (held && svc.port) {
         const l = (await listeners(svc.port))[0];
         st.state = 'external';
         st.external = l ? { pid: l.pid, command: l.command } : null;
@@ -186,8 +189,9 @@ export async function getStatuses(config: Config, opts: { dockerMaxAgeMs?: numbe
     }),
   );
 
-  if (Object.keys(deadNow).length || Object.keys(readyNow).length) {
+  if (Object.keys(deadNow).length || Object.keys(readyNow).length || staleCrashes.length) {
     updateState((s) => {
+      for (const name of staleCrashes) delete s.crashed[name];
       for (const [name, error] of Object.entries(deadNow)) {
         delete s.procs[name];
         s.crashed[name] = { at: Date.now(), error };

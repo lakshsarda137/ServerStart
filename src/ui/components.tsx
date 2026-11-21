@@ -48,15 +48,23 @@ export function boxLines(opts: { title: string; right?: string; lines: [string, 
   const b = opts.border ?? p.line;
   const inner = w - 2;
   const titleTxt = `─ ${opts.title} `;
-  const rightTxt = opts.right ? ` ${opts.right} ─` : '';
+  // truncate a long path from the left so the box keeps its corners
+  let right = opts.right;
+  if (right) {
+    const room = inner - [...titleTxt].length - 4 - 3;
+    if ([...right].length > room) right = room > 4 ? '…' + [...right].slice(-(room - 1)).join('') : undefined;
+  }
+  const rightTxt = right ? ` ${right} ─` : '';
   const fill = Math.max(1, inner - [...titleTxt].length - [...rightTxt].length);
   const top =
     c(b, '╭─ ') +
     c(p.accent, opts.title, { bold: true }) +
     c(b, ' ' + '─'.repeat(fill)) +
-    (opts.right ? ' ' + c(p.path, opts.right) + c(b, ' ─') : '') +
+    (right ? ' ' + c(p.path, right) + c(b, ' ─') : '') +
     c(b, '╮');
-  const body = opts.lines.map(([left, right]) => {
+  const body = opts.lines.map(([left, rightText]) => {
+    // drop the right-hand text when it doesn't fit next to the left
+    const right = rightText && visibleLength(left) + visibleLength(rightText) + 7 <= inner ? rightText : undefined;
     const space = inner - 2 - visibleLength(left) - (right ? visibleLength(right) + 2 : 0);
     const content = '  ' + left + ' '.repeat(Math.max(1, space)) + (right ? right + '  ' : '');
     return c(b, '│') + fit(content, inner) + c(b, '│');
@@ -103,5 +111,5 @@ export function withBg(line: string, hex: string, width: number): string {
   const seq = bgSeq(hex);
   const padded = line + ' '.repeat(Math.max(0, width - visibleLength(line)));
   if (!seq) return padded;
-  return seq + padded.replace(/\u001b\[0m/g, '\u001b[0m' + seq) + '\u001b[0m';
+  return seq + padded.replace(/\u001b\[(0|49)m/g, (m) => m + seq) + '\u001b[49m';
 }

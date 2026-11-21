@@ -6,7 +6,7 @@ description: Register, start, stop, or check local dev servers with the serverst
   servers are running.
 ---
 
-<!-- version: 1 -->
+<!-- version: 2 -->
 
 # ServerStart
 
@@ -51,8 +51,17 @@ other projects.
   Docker service and use `--depends-on <it>` instead of registering a duplicate. For a new one,
   register the compose service: `serverstart add --name <app>-db --docker-compose <abs file>
   --docker-service <svc> --port <published port> --group <app> --json`.
-- Always pass `--json` and read exit codes: 0 ok, 1 start failed, 2 usage, 3 config invalid,
-  4 conflict (name or port), 5 environment (Docker, cwd).
+- Always pass `--json`, and run each `serverstart` command on its own (no `; echo $?` or
+  pipes): the JSON already says what happened (`ok`, `state`, `error`). Exit codes: 0 ok,
+  1 start failed, 2 usage, 3 config invalid, 4 conflict (name or port), 5 environment.
+- **Already running by hand:** if `up` reports a service as `external` (`already_running: true`,
+  `external.pid`), the user started that app themselves in its own folder. That's fine: it is
+  registered and will start under ServerStart next time. Don't stop it. If the port is held by
+  some *other* program, the error names it (`port 3001 in use: node 8770`); you don't need `ps`
+  or `lsof` to identify it.
+- **Wrapper scripts:** if the project has its own start script that reads the port from config
+  (e.g. `scripts/start.sh`), registering that script as `--cmd` is fine; set `--port` to the port
+  it uses and prefer an `--ready-http` health route if one exists.
 
 ## Example: Vite + FastAPI + Postgres
 

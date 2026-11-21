@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { ZodIssue } from 'zod';
 import { configPath, resolvePath } from '../paths.js';
@@ -59,13 +59,18 @@ function formatZodIssue(issue: ZodIssue): ConfigIssue {
   return { path, message };
 }
 
-function detectKind(s: RawService): Service['kind'] {
+function detectKind(s: RawService, cwd?: string): Service['kind'] {
   if (s.docker) return 'docker';
   if (s.python) return 'python';
   if (s.node) return 'node';
   const cmd = s.cmd ?? '';
   if (/\b(npm|pnpm|yarn|bun|npx|node|next|vite|nuxt|astro|remix)\b/.test(cmd)) return 'node';
   if (/\b(python3?|uvicorn|flask|django|gunicorn|streamlit|uv|poetry|hypercorn|fastapi)\b/.test(cmd)) return 'python';
+  // a wrapper script: look at the project itself
+  if (cwd) {
+    if (['pyproject.toml', 'requirements.txt', 'manage.py'].some((f) => existsSync(join(cwd, f)))) return 'python';
+    if (existsSync(join(cwd, 'package.json'))) return 'node';
+  }
   return 'other';
 }
 
@@ -94,7 +99,7 @@ export function normalizeService(name: string, s: RawService, settings: Settings
     node: s.node,
     isDefault: s.start_by_default ?? settings.newServicesDefault,
     url: s.url,
-    kind: detectKind(s),
+    kind: detectKind(s, cwd),
     raw: s,
   };
 }

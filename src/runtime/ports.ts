@@ -41,6 +41,13 @@ export async function listeners(port: number): Promise<Listener[]> {
   return out;
 }
 
+/** Working directory of a process (lsof), or null. */
+export async function processCwd(pid: number): Promise<string | null> {
+  const r = await execa('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], { reject: false });
+  const line = r.stdout.split('\n').find((l) => l.startsWith('n'));
+  return line ? line.slice(1) : null;
+}
+
 /** Next port at or above `start` that no configured service uses and nothing is listening on. */
 export async function nextFreePort(start: number, taken: Iterable<number>): Promise<number> {
   const t = new Set(taken);

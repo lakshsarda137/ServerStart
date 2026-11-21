@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { loadConfig, type Config } from '../config/load.js';
 import { editConfig, setServiceField } from '../config/write.js';
 import { displayGroups } from '../graph.js';
-import { countsLine, statusHeader, statusRow } from '../output/format.js';
+import { countsLine, fitNameColumn, statusHeader, statusRow } from '../output/format.js';
 import { c, pal, trunc, visibleLength } from '../output/term.js';
 import { tildify } from '../paths.js';
 import { Engine, type Patch, type UpOptions } from '../runtime/engine.js';
@@ -255,6 +255,7 @@ export function Dashboard(props: { config: Config; configOverride?: string; up?:
   // body
   type Row = { text: string; owner?: string };
   const body: Row[] = [];
+  fitNameColumn(statuses.map((s) => s.name), width);
   if (!statuses.length && polled.at) {
     body.push({ text: '' });
     body.push({ text: '  ' + c(p.cmd, 'serverstart add') + '             ' + c(p.muted, 'register the project in the current directory') });

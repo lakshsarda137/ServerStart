@@ -7,7 +7,7 @@ import { tildify } from '../paths.js';
 import { composePs, composeStop, composeUp, dockerVersion, ensureDocker } from './docker.js';
 import { buildLaunch, cmdHash, venvPath } from './env.js';
 import { closeFd, errorSince, openLogForStart } from './logs.js';
-import { listeners, portOpen, type Listener } from './ports.js';
+import { listeners, portOpen, processCwd, type Listener } from './ports.js';
 import { groupAlive, isAlive, processStart, signalGroup, sleep } from './proc.js';
 import { checkReady } from './ready.js';
 import { getStatuses, invalidateDockerCache, probeRuntime } from './status.js';
@@ -23,6 +23,8 @@ export interface UpOutcome {
   already_running: boolean;
   port: number | null;
   url: string | null;
+  /** Set when the service is already running outside ServerStart (started by hand in its project). */
+  external: { pid: number; command: string; cwd: string | null } | null;
 }
 
 export interface DownOutcome {
@@ -97,7 +99,11 @@ export class Engine extends EventEmitter<EngineEvents> {
         return this.outcome(svc, 'blocked', null, t0, false, failed.name);
       }
       const cur = current.get(n)!;
-      if (cur.state === 'ready') {
+      if (cur.state === 'ready' || (cur.state === 'external' && !svc.docker && (await this.sameProjectHolder(svc)))) {
+        if (cur.state === 'external') {
+          this.set(n, { state: 'external', external: cur.external, pid: cur.pid, error: null });
+          return { ...this.outcome(svc, 'ready', null, t0, true), external: cur.external ? { ...cur.external, cwd: svc.cwd } : null };
+        }
         this.set(n, { state: 'ready', pid: cur.pid, uptime_s: cur.uptime_s });
         return this.outcome(svc, 'ready', null, t0, true);
       }
@@ -128,6 +134,7 @@ export class Engine extends EventEmitter<EngineEvents> {
       already_running: already,
       port: svc.port ?? null,
       url: svc.url ?? (svc.port ? `http://localhost:${svc.port}` : null),
+      external: null,
     };
   }
 
@@ -145,6 +152,19 @@ export class Engine extends EventEmitter<EngineEvents> {
     if (!existsSync(svc.cwd)) return `cwd missing: ${tildify(svc.cwd)}`;
     const venv = venvPath(svc);
     if (venv && !existsSync(venv)) return `venv missing: ${tildify(venv)}`;
+    return null;
+  }
+
+  /**
+   * The process holding the port, if it runs from this service's own project folder
+   * (the same app started by hand). Such a service counts as running, not failed.
+   */
+  private async sameProjectHolder(svc: Service): Promise<(Listener & { cwd: string | null }) | null> {
+    if (!svc.port || !(await portOpen(svc.port))) return null;
+    const holder = (await listeners(svc.port))[0];
+    if (!holder) return null;
+    const cwd = await processCwd(holder.pid);
+    if (cwd && (cwd === svc.cwd || cwd.startsWith(svc.cwd + '/'))) return { ...holder, cwd };
     return null;
   }
 
@@ -170,6 +190,12 @@ export class Engine extends EventEmitter<EngineEvents> {
     this.set(svc.name, { state: 'starting', elapsed_s: 0, error: null });
     const pre = await this.preflight(svc);
     if (pre) return this.fail(svc, pre, t0);
+    const own = await this.sameProjectHolder(svc);
+    if (own) {
+      updateState((s) => void delete s.crashed[svc.name]);
+      this.set(svc.name, { state: 'external', external: { pid: own.pid, command: own.command }, pid: own.pid, error: null });
+      return { ...this.outcome(svc, 'ready', null, t0, true), external: own };
+    }
     if (svc.port && (cur.state === 'external' || (await portOpen(svc.port)))) {
       const err = await this.clearPort(svc, opts);
       if (err) return this.fail(svc, err, t0);

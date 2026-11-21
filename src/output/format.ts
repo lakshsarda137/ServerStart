@@ -12,6 +12,12 @@ import { c, colorMode, duration, pad, pal, trunc, uptime } from './term.js';
 
 export const COL = { gutter: 2, star: 3, name: 17, state: 13, port: 7, pid: 8, runtime: 14, uptime: 6 };
 
+/** Widen the name column to fit the longest name (17–24), when the terminal has room. */
+export function fitNameColumn(names: string[], width = 80): void {
+  const want = Math.min(24, Math.max(17, ...names.map((n) => n.length + 2)));
+  COL.name = width >= 80 ? want : 17;
+}
+
 const plain = () => colorMode() === 'none';
 
 export function stateCell(state: ServiceState, frame = 0): string {
@@ -96,9 +102,10 @@ export function countsLine(statuses: ServiceStatus[], order: ServiceState[] = ['
 
 export function renderStatus(statuses: ServiceStatus[]): string {
   if (plain()) {
+    const nw = Math.max(18, ...statuses.map((s) => s.name.length + 2));
     const rows = statuses.map((s) =>
       [
-        pad(s.name, 18),
+        pad(s.name, nw),
         pad(s.state, 10),
         pad(s.port ? String(s.port) : '-', 7),
         pad(s.pid ? String(s.pid) : '-', 8),
@@ -109,10 +116,11 @@ export function renderStatus(statuses: ServiceStatus[]): string {
         .join('')
         .trimEnd(),
     );
-    return [pad('NAME', 18) + pad('STATE', 10) + pad('PORT', 7) + pad('PID', 8) + pad('RUNTIME', 14) + 'UPTIME', ...rows].join('\n');
+    return [pad('NAME', nw) + pad('STATE', 10) + pad('PORT', 7) + pad('PID', 8) + pad('RUNTIME', 14) + 'UPTIME', ...rows].join('\n');
   }
   const p = pal();
   const width = Math.min(process.stdout.columns ?? 80, 100);
+  fitNameColumn(statuses.map((s) => s.name), width);
   const lines = [statusHeader(width), ...statuses.flatMap((s) => statusRow(s, { width }))];
   const crashed = statuses.find((s) => s.state === 'crashed');
   const footer = countsLine(statuses) + (crashed ? '        ' + c(p.cmd, `serverstart logs ${crashed.name}`) : '');
@@ -129,9 +137,10 @@ export function renderLs(config: Config): string {
     return { s, dir, cmd };
   });
   if (plain()) {
+    const nw = Math.max(18, ...rows.map(({ s }) => s.name.length + 2));
     return [
-      pad('NAME', 18) + pad('KIND', 9) + pad('PORT', 7) + pad('DEFAULT', 9) + pad('DIRECTORY', 32) + 'COMMAND',
-      ...rows.map(({ s, dir, cmd }) => (pad(s.name, 18) + pad(s.kind, 9) + pad(s.port ? String(s.port) : '-', 7) + pad(s.isDefault ? 'yes' : 'no', 9) + pad(dir, 32) + cmd).trimEnd()),
+      pad('NAME', nw) + pad('KIND', 9) + pad('PORT', 7) + pad('DEFAULT', 9) + pad('DIRECTORY', 32) + 'COMMAND',
+      ...rows.map(({ s, dir, cmd }) => (pad(s.name, nw) + pad(s.kind, 9) + pad(s.port ? String(s.port) : '-', 7) + pad(s.isDefault ? 'yes' : 'no', 9) + pad(dir, 32) + cmd).trimEnd()),
     ].join('\n');
   }
   const p = pal();
@@ -156,11 +165,15 @@ export function renderLs(config: Config): string {
   ].join('\n');
 }
 
-export function upLine(o: UpOutcome): string {
+export function upLine(o: UpOutcome, nw = 17): string {
   const p = pal();
+  if (o.external) {
+    if (plain()) return (pad(o.name, nw) + pad('external', 10) + pad(o.port ? String(o.port) : '-', 7) + pad('-', 7) + `already running outside serverstart, pid ${o.external.pid}`).trimEnd();
+    return '  ' + c(p.states.external, GLYPH.external) + ' ' + pad(c(p.text, o.name), nw) + pad(c(p.states.external, 'external'), 11) + pad(o.port ? c(p.port, o.port) : c(p.faint, '–'), 7) + c(p.muted, 'PID ') + c(p.text, o.external.pid);
+  }
   if (plain()) {
     const detail = o.state === 'blocked' ? `blocked by ${o.blocked_by}` : (o.error ?? (o.already_running ? 'already running' : ''));
-    return (pad(o.name, 17) + pad(o.state, 10) + pad(o.port ? String(o.port) : '-', 7) + pad(duration(o.duration_ms), 7) + detail).trimEnd();
+    return (pad(o.name, nw) + pad(o.state, 10) + pad(o.port ? String(o.port) : '-', 7) + pad(duration(o.duration_ms), 7) + detail).trimEnd();
   }
   const state = o.state === 'ready' ? 'ready' : o.state;
   const detail =
@@ -171,24 +184,25 @@ export function upLine(o: UpOutcome): string {
       : o.state === 'blocked'
         ? c(p.text, o.blocked_by ?? '') + ' ' + c(p.states.crashed, GLYPH.crashed)
         : c(p.err, trunc(o.error ?? '', 40));
-  return '  ' + c(p.states[state], GLYPH[state]) + ' ' + pad(c(p.text, o.name), 17) + pad(c(p.states[state], state), 11) + pad(o.port ? c(p.port, o.port) : c(p.faint, '–'), 7) + detail;
+  return '  ' + c(p.states[state], GLYPH[state]) + ' ' + pad(c(p.text, o.name), nw) + pad(c(p.states[state], state), 11) + pad(o.port ? c(p.port, o.port) : c(p.faint, '–'), 7) + detail;
 }
 
 export function upSummary(out: UpOutcome[]): string {
-  const ready = out.filter((o) => o.state === 'ready').length;
-  const failed = out.length - ready;
-  if (plain()) return `${ready} ready${failed ? `   ${failed} failed` : ''}`;
+  const external = out.filter((o) => o.external).length;
+  const ready = out.filter((o) => o.state === 'ready').length - external;
+  const failed = out.filter((o) => o.state !== 'ready').length;
+  if (plain()) return `${ready} ready${external ? `   ${external} external` : ''}${failed ? `   ${failed} failed` : ''}`;
   const p = pal();
-  return '  ' + c(p.ok, `✓ ${ready} ready`) + (failed ? '   ' + c(p.err, `✕ ${failed} failed`) : '');
+  return '  ' + c(p.ok, `✓ ${ready} ready`) + (external ? '   ' + c(p.states.external, `◇ ${external} external`) : '') + (failed ? '   ' + c(p.err, `✕ ${failed} failed`) : '');
 }
 
-export function downLine(o: DownOutcome): string {
+export function downLine(o: DownOutcome, nw = 17): string {
   const p = pal();
-  if (plain()) return (pad(o.name, 17) + pad(o.killed ? 'killed' : o.state, 10) + pad(duration(o.duration_ms), 7) + (o.killed ? 'SIGKILL after 10s' : (o.error ?? ''))).trimEnd();
-  if (o.killed) return '  ' + c(p.warn, '!') + ' ' + pad(c(p.text, o.name), 17) + pad(c(p.warn, 'killed'), 11) + c(p.muted, 'SIGKILL after 10s');
-  if (o.state === 'failed') return '  ' + c(p.err, '✕') + ' ' + pad(c(p.text, o.name), 17) + pad(c(p.err, 'failed'), 11) + c(p.err, o.error ?? '');
-  if (o.state === 'skipped') return '  ' + c(p.faint, '–') + ' ' + pad(c(p.text, o.name), 17) + pad(c(p.faint, 'not running'), 11);
-  return '  ' + c(p.ok, '✓') + ' ' + pad(c(p.text, o.name), 17) + pad(c(p.states.stopped, 'stopped'), 11) + c(p.muted, duration(o.duration_ms));
+  if (plain()) return (pad(o.name, nw) + pad(o.killed ? 'killed' : o.state, 10) + pad(duration(o.duration_ms), 7) + (o.killed ? 'SIGKILL after 10s' : (o.error ?? ''))).trimEnd();
+  if (o.killed) return '  ' + c(p.warn, '!') + ' ' + pad(c(p.text, o.name), nw) + pad(c(p.warn, 'killed'), 11) + c(p.muted, 'SIGKILL after 10s');
+  if (o.state === 'failed') return '  ' + c(p.err, '✕') + ' ' + pad(c(p.text, o.name), nw) + pad(c(p.err, 'failed'), 11) + c(p.err, o.error ?? '');
+  if (o.state === 'skipped') return '  ' + c(p.faint, '–') + ' ' + pad(c(p.text, o.name), nw) + pad(c(p.faint, 'not running'), 11);
+  return '  ' + c(p.ok, '✓') + ' ' + pad(c(p.text, o.name), nw) + pad(c(p.states.stopped, 'stopped'), 11) + c(p.muted, duration(o.duration_ms));
 }
 
 export function downSummary(out: DownOutcome[], ports: number[]): string {

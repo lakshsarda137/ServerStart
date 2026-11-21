@@ -99,7 +99,8 @@ async function cmdUp(targets: string[], opts: { killPort?: boolean; dash?: boole
     outcomes = await engine.up(names, { killPort: opts.killPort });
     if (globals.json) printJson({ services: outcomes, ok: outcomes.every((o) => o.state === 'ready') });
     else {
-      for (const o of outcomes) if (!globals.quiet || o.state !== 'ready') out(upLine(o));
+      const nw = Math.max(17, ...outcomes.map((o) => o.name.length + 2));
+      for (const o of outcomes) if (!globals.quiet || o.state !== 'ready') out(upLine(o, nw));
       out(upSummary(outcomes));
     }
   }
@@ -125,7 +126,8 @@ async function cmdDown(targets: string[]): Promise<number> {
   const ports = outcomes.filter((o) => o.state === 'stopped' && wasRunning.has(o.name)).map((o) => config.services[o.name].port).filter((p): p is number => !!p);
   if (globals.json) printJson({ services: outcomes, ok: outcomes.every((o) => o.state !== 'failed') });
   else {
-    if (!interactive()) for (const o of outcomes) if (!globals.quiet || o.state === 'failed') out(downLine(o));
+    const nw = Math.max(17, ...outcomes.map((o) => o.name.length + 2));
+    if (!interactive()) for (const o of outcomes) if (!globals.quiet || o.state === 'failed') out(downLine(o, nw));
     if (interactive()) out('');
     out(downSummary(outcomes, ports));
   }
@@ -146,7 +148,8 @@ async function cmdRestart(targets: string[], opts: { killPort?: boolean }): Prom
   const outcomes = await engine.restart(names, { killPort: opts.killPort });
   if (globals.json) printJson({ services: outcomes, ok: outcomes.every((o) => o.state === 'ready') });
   else {
-    for (const o of outcomes) out(upLine(o));
+    const nw = Math.max(17, ...outcomes.map((o) => o.name.length + 2));
+    for (const o of outcomes) out(upLine(o, nw));
     out(upSummary(outcomes));
   }
   return outcomes.every((o) => o.state === 'ready') ? EXIT.OK : EXIT.FAILED;

@@ -117,7 +117,8 @@ export function c(hex: string, s: string | number, opts: { bold?: boolean; bg?: 
   const codes = [fgCode(hex)];
   if (opts.bold) codes.unshift('1');
   if (opts.bg) codes.push(bgCode(opts.bg));
-  return `\u001b[${codes.join(';')}m${text}\u001b[0m`;
+  const close = '\u001b[39m' + (opts.bold ? '\u001b[22m' : '') + (opts.bg ? '\u001b[49m' : '');
+  return `\u001b[${codes.join(';')}m${text}${close}`;
 }
 
 // eslint-disable-next-line no-control-regex
