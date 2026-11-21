@@ -331,7 +331,7 @@ export function Dashboard(props: { config: Config; configOverride?: string; up?:
     if (sel) {
       hints.push({ key: '⏎', label: sel.state === 'crashed' ? 'error log' : 'logs' });
       if (sel.state !== 'external') hints.push({ key: 'r', label: 'restart' });
-      if (sel.state !== 'stopping' && sel.state !== 'external') hints.push({ key: 's', label: sel.state === 'ready' || sel.state === 'starting' ? 'stop' : 'start' });
+      if (sel.state !== 'stopping') hints.push({ key: 's', label: sel.state === 'ready' || sel.state === 'starting' ? 'stop' : 'start' });
       if (sel.url) hints.push({ key: 'o', label: 'open' });
       hints.push({ key: 'd', label: 'default' });
     }

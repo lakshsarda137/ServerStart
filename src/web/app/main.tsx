@@ -182,7 +182,7 @@ function LogPanel({ svc, p, frame, onClose, findRef }: { svc: ServiceStatus; p: 
     const es = new EventSource(`/api/logs/${svc.name}`);
     es.addEventListener('init', (e) => {
       const d = JSON.parse((e as MessageEvent).data);
-      setLines(d.lines);
+      setLines([...d.lines, '']); // trailing '' = the next append starts a new line
       setMeta({ path: d.path, size: d.size });
     });
     es.addEventListener('append', (e) => {
@@ -360,7 +360,7 @@ function ServicesView(props: {
                             ★
                           </button>
                         </td>
-                        <td className="name">{s.name}</td>
+                        <td className="name name-cell">{s.name}</td>
                         <td>
                           <StateCell s={s.state} p={p} frame={frame} />
                         </td>
@@ -414,7 +414,7 @@ function ActionBar({ snap, sel, p, live }: { snap: Snapshot; sel?: ServiceStatus
           [restart]
         </button>
       )}
-      {sel && sel.state !== 'external' && sel.state !== 'stopping' && (
+      {sel && sel.state !== 'stopping' && (
         <button className="btn" disabled={disabled} onClick={() => void post(`/api/services/${sel.name}/${canStop(sel) ? 'stop' : 'start'}`)}>
           {canStop(sel) ? '[stop]' : '[start]'}
         </button>
@@ -598,12 +598,15 @@ function App() {
       else if (e.key === 'Escape') setPanel(false);
       else if (!sel || !live) return;
       else if (e.key === 'r' && sel.state !== 'external') void post(`/api/services/${sel.name}/restart`);
-      else if (e.key === 's' && sel.state !== 'external' && sel.state !== 'stopping') void post(`/api/services/${sel.name}/${canStop(sel) ? 'stop' : 'start'}`);
+      else if (e.key === 's' && sel.state !== 'stopping') void post(`/api/services/${sel.name}/${canStop(sel) ? 'stop' : 'start'}`);
       else if (e.key === 'o' && sel.url) window.open(sel.url, '_blank');
       else if (e.key === 'd') void post(`/api/services/${sel.name}/default`, { value: !sel.default });
       else if (e.key === '/') {
-        setPanel(true);
-        setTimeout(() => findRef.current?.focus(), 0);
+        if (findRef.current) findRef.current.focus();
+        else {
+          setPanel(true);
+          setTimeout(() => findRef.current?.focus(), 50);
+        }
         e.preventDefault();
       } else return;
       e.preventDefault();
