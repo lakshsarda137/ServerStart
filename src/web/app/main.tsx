@@ -167,11 +167,11 @@ function IconButton(props: { icon: string; label: string; onClick: () => void; d
 }
 
 /** The large, colored Start / Stop button (rows, group headers, page header). */
-function RunButton(props: { mode: 'start' | 'stop' | 'running'; label?: string; title?: string; size?: 'lg'; disabled?: boolean; onClick: () => void }) {
+function RunButton(props: { mode: 'start' | 'stop' | 'running'; label?: string; title?: string; wide?: boolean; disabled?: boolean; onClick: () => void }) {
   const text = props.label ?? (props.mode === 'start' ? 'Start' : props.mode === 'stop' ? 'Stop' : 'Running');
   return (
     <button
-      className={`run-btn ${props.mode} ${props.size ?? ''}`}
+      className={`run-btn ${props.mode} ${props.wide ? 'wide-btn' : ''}`}
       title={props.title ?? text}
       disabled={props.disabled}
       onClick={(e) => {
@@ -368,32 +368,36 @@ function Tiles({ snap }: { snap: Snapshot }) {
 
 const up = (s: ServiceStatus) => running(s) || s.state === 'external';
 
-/** A group is one app: start or stop all of it, and open its frontend (`entry`). */
+/** A group is one app: start or stop all of it, and open its frontend (`entry`). Same grid as row actions. */
 function GroupActions(props: { group: string; members: ServiceStatus[]; entry: ServiceStatus | null; live: boolean; onOpen: (group: string, entry: ServiceStatus) => void }) {
   const { group, members, entry, live } = props;
   const ours = members.some(running);
   const allUp = members.length > 0 && members.every(up);
+  const path = `/api/groups/${encodeURIComponent(group)}`;
   return (
-    <div className="group-actions">
+    <div className="actions-grid">
       {ours ? (
-        <RunButton mode="stop" label={`Stop ${group}`} disabled={!live} onClick={() => void post(`/api/groups/${encodeURIComponent(group)}/stop`)} />
+        <RunButton mode="stop" title={`Stop ${group}`} disabled={!live} onClick={() => void post(`${path}/stop`)} />
       ) : allUp ? (
-        <RunButton mode="running" label="Running" title="Already running outside ServerStart" disabled={!live} onClick={() => void post(`/api/groups/${encodeURIComponent(group)}/start`)} />
+        <RunButton mode="running" title={`${group} is already running outside ServerStart`} disabled={!live} onClick={() => void post(`${path}/start`)} />
       ) : (
-        <RunButton mode="start" label={`Start ${group}`} disabled={!live} onClick={() => void post(`/api/groups/${encodeURIComponent(group)}/start`)} />
+        <RunButton mode="start" title={`Start ${group}`} disabled={!live} onClick={() => void post(`${path}/start`)} />
       )}
-      {entry?.url && (
+      {entry?.url ? (
         <button
-          className="btn open-app"
+          className="open-span"
           disabled={!live}
-          title={allUp ? `Open ${entry.url}` : `Start ${group}, then open ${entry.url}`}
+          title={allUp ? `Open ${group} (${entry.url})` : `Start ${group}, then open ${entry.url}`}
           onClick={(e) => {
             e.stopPropagation();
             props.onOpen(group, entry);
           }}
         >
-          <Icon d={I.open} size={14} /> Open {group}
+          <Icon d={I.open} size={14} />
+          Open
         </button>
+      ) : (
+        <span className="slot-span" />
       )}
     </div>
   );
@@ -444,10 +448,20 @@ function ServicesView(props: {
             <input placeholder="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
           </div>
           <span className="spacer" />
-          <RunButton mode="stop" size="lg" label="Stop all" disabled={!live || !anyRunning} onClick={() => void post('/api/down')} />
-          <RunButton mode="start" size="lg" label="Start default set" disabled={!live} onClick={() => void post('/api/up')} />
+          <RunButton mode="stop" wide label="Stop all" disabled={!live || !anyRunning} onClick={() => void post('/api/down')} />
+          <RunButton mode="start" wide label="Start default set" disabled={!live} onClick={() => void post('/api/up')} />
         </div>
         <table className="services">
+          <colgroup>
+            <col className="w-star" />
+            <col />
+            <col className="w-status" />
+            <col className="w-port" />
+            <col className="w-pid wide" />
+            <col className="w-runtime wide" />
+            <col className="w-uptime" />
+            <col className="w-actions" />
+          </colgroup>
           <thead>
             <tr>
               <th className="c-star" />
@@ -467,11 +481,14 @@ function ServicesView(props: {
               return (
                 <React.Fragment key={g.group ?? '__none'}>
                   <tr className="group-row">
-                    <td colSpan={8}>
-                      <div className="group-head">
-                        <span className="group-name">{g.group ?? 'Ungrouped'}</span>
-                        {g.group && <GroupActions group={g.group} members={g.names.map((m) => byName.get(m)!).filter(Boolean)} entry={g.entry ? byName.get(g.entry) ?? null : null} live={live} onOpen={props.openWhenReady} />}
-                      </div>
+                    <td className="c-star" />
+                    <td colSpan={4} className="group-name">
+                      {g.group ?? 'Ungrouped'}
+                    </td>
+                    <td className="wide" />
+                    <td />
+                    <td className="c-actions">
+                      {g.group && <GroupActions group={g.group} members={g.names.map((m) => byName.get(m)!).filter(Boolean)} entry={g.entry ? byName.get(g.entry) ?? null : null} live={live} onOpen={props.openWhenReady} />}
                     </td>
                   </tr>
                   {names.map((n) => {
@@ -520,7 +537,7 @@ function ServicesView(props: {
                         <td className="wide muted">{s.runtime}</td>
                         <td className="num muted mono">{time}</td>
                         <td className="c-actions">
-                          <div className="row-actions">
+                          <div className="actions-grid">
                             {running(s) ? (
                               <RunButton mode="stop" disabled={!live} onClick={() => void post(`/api/services/${n}/stop`)} />
                             ) : s.state === 'external' && s.external?.same_project ? (
@@ -528,7 +545,7 @@ function ServicesView(props: {
                             ) : (
                               <RunButton mode="start" disabled={!live || s.state === 'stopping'} onClick={() => void post(`/api/services/${n}/start`)} />
                             )}
-                            {s.state !== 'external' && <IconButton icon={I.restart} label="Restart" disabled={!live} onClick={() => void post(`/api/services/${n}/restart`)} />}
+                            {s.state !== 'external' ? <IconButton icon={I.restart} label="Restart" disabled={!live} onClick={() => void post(`/api/services/${n}/restart`)} /> : <span className="slot" />}
                             <IconButton icon={I.open} label={s.url ? `Open ${s.url.replace(/^https?:\/\//, '')}` : 'No port or URL'} disabled={!s.url} onClick={() => window.open(s.url!, '_blank')} />
                             <IconButton icon={I.logs} label="Logs" onClick={() => props.select(n)} />
                           </div>

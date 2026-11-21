@@ -349,18 +349,8 @@ table.services {
   padding-left: 16px !important;
   padding-right: 0 !important;
 }
-.c-actions {
-  width: 150px;
-}
-.group-row td {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--label);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 16px 16px 6px;
-  border-bottom: 0;
-}
+
+
 tr.svc {
   cursor: pointer;
 }
@@ -392,17 +382,6 @@ tr.svc.sel td:first-child {
   font-size: 12px;
   color: var(--muted);
   margin-top: 2px;
-}
-.row-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 2px;
-  opacity: 0.55;
-  transition: opacity 0.15s;
-}
-tr.svc:hover .row-actions,
-tr.svc.sel .row-actions {
-  opacity: 1;
 }
 .star {
   border: 0;
@@ -804,14 +783,41 @@ tr.svc.focus td:first-child {
   box-shadow: inset 3px 0 0 var(--faint);
 }
 
-/* run buttons: large and colored */
+/* ── actions: one size system, one grid ─────────────────────────────────────
+   Every action control is 30px tall. Start/Stop is 80px wide; icons are 30px squares.
+   Rows and group bands share the same grid, so controls line up vertically. */
+:root {
+  --ctl-h: 30px;
+  --run-w: 80px;
+  --ico-w: 30px;
+  --ctl-gap: 4px;
+}
+.actions-grid {
+  display: grid;
+  grid-template-columns: var(--run-w) var(--ico-w) var(--ico-w) var(--ico-w);
+  column-gap: var(--ctl-gap);
+  justify-content: end;
+  align-items: center;
+}
+.actions-grid .icon-btn,
+.actions-grid .slot {
+  width: var(--ico-w);
+  height: var(--ctl-h);
+}
+.actions-grid .open-span,
+.actions-grid .slot-span {
+  grid-column: 2 / span 3;
+  height: var(--ctl-h);
+}
 .run-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 7px;
-  height: 30px;
-  padding: 0 13px;
-  border-radius: 8px;
+  width: var(--run-w);
+  height: var(--ctl-h);
+  padding: 0;
+  border-radius: 7px;
   border: 1px solid transparent;
   font-size: 13px;
   font-weight: 600;
@@ -819,30 +825,30 @@ tr.svc.focus td:first-child {
   white-space: nowrap;
   transition: background 0.12s, border-color 0.12s;
 }
-.run-btn.lg {
-  height: 34px;
-  padding: 0 16px;
+.run-btn.wide-btn {
+  width: auto;
+  padding: 0 14px;
 }
 .run-btn.start {
   color: var(--s-ready);
-  background: color-mix(in srgb, var(--s-ready) 16%, transparent);
-  border-color: color-mix(in srgb, var(--s-ready) 40%, transparent);
+  background: color-mix(in srgb, var(--s-ready) 14%, transparent);
+  border-color: color-mix(in srgb, var(--s-ready) 36%, transparent);
 }
 .run-btn.start:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--s-ready) 28%, transparent);
+  background: color-mix(in srgb, var(--s-ready) 26%, transparent);
 }
 .run-btn.stop {
   color: var(--s-crashed);
-  background: color-mix(in srgb, var(--s-crashed) 14%, transparent);
-  border-color: color-mix(in srgb, var(--s-crashed) 40%, transparent);
+  background: color-mix(in srgb, var(--s-crashed) 12%, transparent);
+  border-color: color-mix(in srgb, var(--s-crashed) 36%, transparent);
 }
 .run-btn.stop:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--s-crashed) 26%, transparent);
+  background: color-mix(in srgb, var(--s-crashed) 24%, transparent);
 }
 .run-btn.running {
   color: var(--s-external);
   background: color-mix(in srgb, var(--s-external) 12%, transparent);
-  border-color: color-mix(in srgb, var(--s-external) 35%, transparent);
+  border-color: color-mix(in srgb, var(--s-external) 34%, transparent);
 }
 .run-dot {
   width: 7px;
@@ -854,48 +860,97 @@ tr.svc.focus td:first-child {
   opacity: 0.4;
   cursor: default;
 }
-.row-actions {
+.open-span {
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-  opacity: 1;
-}
-.row-actions .icon-btn {
-  opacity: 0.6;
-}
-tr.svc:hover .row-actions .icon-btn,
-tr.svc.sel .row-actions .icon-btn {
-  opacity: 1;
-}
-.row-actions .run-btn {
-  margin-right: 6px;
-  min-width: 82px;
   justify-content: center;
+  gap: 7px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
 }
-.c-actions {
-  width: 230px;
+.open-span:hover:not(:disabled) {
+  background: var(--select);
+}
+.open-span:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.actions-grid .icon-btn {
+  color: var(--muted);
+}
+tr.svc:hover .actions-grid .icon-btn,
+tr.svc.sel .actions-grid .icon-btn {
+  color: var(--text);
 }
 
-/* group header = the app */
-.group-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+/* fixed columns, so header, bands and rows share one layout */
+table.services {
+  table-layout: fixed;
 }
-.group-name {
-  flex: 1;
+.w-star {
+  width: 48px;
 }
-.group-actions {
-  display: flex;
-  gap: 8px;
-  text-transform: none;
-  letter-spacing: 0;
+.w-status {
+  width: 140px;
 }
-.group-row td {
-  padding-top: 18px;
-  padding-bottom: 8px;
+.w-port {
+  width: 84px;
+}
+.w-pid {
+  width: 92px;
+}
+.w-runtime {
+  width: 132px;
+}
+.w-uptime {
+  width: 76px;
+}
+.w-actions {
+  width: calc(var(--run-w) + 3 * var(--ico-w) + 3 * var(--ctl-gap) + 32px);
+}
+.services td,
+.services th {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+.services .c-star {
+  padding-left: 16px !important;
+  padding-right: 0 !important;
+}
+.services .c-actions {
   padding-right: 16px;
 }
-.open-app {
-  height: 30px;
+.services td {
+  height: 52px;
+}
+
+/* group band: a full-width header for each app */
+.group-row td {
+  height: 46px;
+  padding-top: 0;
+  padding-bottom: 0;
+  background: color-mix(in srgb, var(--bg) 55%, var(--surface));
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+tbody .group-row:first-child td {
+  border-top: 0;
+}
+.group-row .group-name {
+  font-size: 12px;
   font-weight: 600;
+  color: var(--label);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.group-row .c-star {
+  padding-left: 16px;
+}
+.card-head .search {
+  height: var(--ctl-h);
 }
