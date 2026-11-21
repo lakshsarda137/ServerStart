@@ -439,6 +439,12 @@ function ServicesView(props: { snap: Snapshot; frame: number; live: boolean; sel
                         <td>
                           <div className="svc-name">{s.name}</div>
                           {s.state === 'crashed' && s.error && <div className="svc-error mono">{s.error}</div>}
+                          {s.state === 'external' && s.external && (
+                            <div className="svc-sub">
+                              {s.external.same_project ? 'Already running outside ServerStart' : 'Port in use'}
+                              <span className="mono faint">PID {s.external.pid}</span>
+                            </div>
+                          )}
                           {s.state === 'blocked' && s.blocked_by && (
                             <div className="svc-sub">
                               <Icon d={I.link} size={12} /> {s.blocked_by} <span style={{ color: 'var(--s-crashed)' }}>{GLYPH.crashed}</span>
@@ -457,7 +463,12 @@ function ServicesView(props: { snap: Snapshot; frame: number; live: boolean; sel
                             {running(s) ? (
                               <IconButton icon={I.stop} label="Stop" disabled={!live} onClick={() => void post(`/api/services/${n}/stop`)} />
                             ) : (
-                              <IconButton icon={I.play} label="Start" disabled={!live || s.state === 'stopping'} onClick={() => void post(`/api/services/${n}/start`)} />
+                              <IconButton
+                                icon={I.play}
+                                label={s.state === 'external' && s.external?.same_project ? `Already running (PID ${s.external.pid})` : 'Start'}
+                                disabled={!live || s.state === 'stopping'}
+                                onClick={() => void post(`/api/services/${n}/start`)}
+                              />
                             )}
                             {s.state !== 'external' && <IconButton icon={I.restart} label="Restart" disabled={!live} onClick={() => void post(`/api/services/${n}/restart`)} />}
                             <IconButton icon={I.open} label="Open in browser" disabled={!s.url} onClick={() => window.open(s.url!, '_blank')} />
@@ -622,7 +633,7 @@ function Toast({ result }: { result: Snapshot['result'] }) {
     <div className={`toast ${result.level}`} role="status">
       <span className="toast-dot" />
       <strong>{name}</strong>
-      <span className="muted">{rest.join(' ')}</span>
+      <span className="muted">{rest.join(', ')}</span>
     </div>
   );
 }

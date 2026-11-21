@@ -20,8 +20,11 @@ export interface ServiceStatus {
   implied_by: string | null;
   /** For `blocked`: the dependency that failed. */
   blocked_by: string | null;
-  /** For `external`: the process that holds the port. */
-  external: { pid: number; command: string } | null;
+  /**
+   * For `external`: the process that holds the port. `same_project` is true when it runs from
+   * this service's own folder, i.e. the same app started by hand (starting it is a no-op).
+   */
+  external: { pid: number; command: string; same_project?: boolean } | null;
   depends_on: string[];
   /** Seconds since the current start began (starting/stopping). */
   elapsed_s?: number | null;

@@ -140,7 +140,14 @@ export function Dashboard(props: { config: Config; configOverride?: string; up?:
   const act = {
     start: (n: string) => void engine.up([n], { confirmKill }).then((o) => {
       const r = o.find((x) => x.name === n);
-      if (r) flash(r.state === 'ready' ? `${c(p.ok, '✓')} ${c(p.text, n)}   ${c(p.muted, 'ready')}` : `${c(p.err, '✕')} ${c(p.text, n)}   ${c(p.err, trunc(r.error ?? r.state, 50))}`);
+      if (!r) return;
+      if (r.already_running)
+        flash(
+          r.external
+            ? `${c(p.states.external, '◇')} ${c(p.text, n)}   ${c(p.text, 'already running')}   ${c(p.muted, `outside ServerStart   PID ${r.external.pid}`)}`
+            : `${c(p.ok, '✓')} ${c(p.text, n)}   ${c(p.text, 'already running')}`,
+        );
+      else flash(r.state === 'ready' ? `${c(p.ok, '✓')} ${c(p.text, n)}   ${c(p.muted, 'ready')}` : `${c(p.err, '✕')} ${c(p.text, n)}   ${c(p.err, trunc(r.error ?? r.state, 50))}`);
     }),
     stop: (n: string) => void engine.down([n]).then(() => flash(`${c(p.states.stopped, '–')} ${c(p.text, n)}   ${c(p.muted, 'stopped')}`)),
     restart: (n: string) => {

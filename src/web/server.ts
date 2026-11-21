@@ -227,10 +227,11 @@ export function createHandler(live: Live, port: number) {
           live.result(`${name}   ${value ? 'added to default set' : 'removed from default set'}`, 'info');
           return json(res, 200, { name, default: value });
         }
-        const report = (o: { name: string; state: string; error: string | null }[], verb: string) => {
+        const report = (o: { name: string; state: string; error: string | null; already_running?: boolean; external?: { pid: number } | null }[], verb: string) => {
           const r = o.find((x) => x.name === name);
           if (!r) return;
-          if (r.state === 'ready' || r.state === 'stopped') live.result(`${name}   ${verb}`, 'ok');
+          if (r.already_running) live.result(r.external ? `${name}   Already running outside ServerStart (PID ${r.external.pid})` : `${name}   Already running`, 'info');
+          else if (r.state === 'ready' || r.state === 'stopped') live.result(`${name}   ${verb}`, 'ok');
           else if (r.state !== 'skipped') live.result(`${name}   ${r.error ?? r.state}`, 'err');
         };
         if (action === 'start') void live.engine.up([name], { confirmKill: live.confirmKill }).then((o) => report(o, 'ready'));
@@ -244,8 +245,12 @@ export function createHandler(live: Live, port: number) {
         if (path === '/api/up') {
           const names = resolveTargets(live.config, []);
           void live.engine.up(names, { confirmKill: live.confirmKill }).then((o) => {
+            const already = o.filter((x) => x.already_running).length;
+            const started = o.filter((x) => x.state === 'ready' && !x.already_running).length;
             const failed = o.filter((x) => x.state !== 'ready').length;
-            live.result(failed ? `default set   ${failed} failed` : 'default set   ready', failed ? 'err' : 'ok');
+            const parts = [started ? `${started} started` : '', already ? `${already} already running` : '', failed ? `${failed} failed` : ''].filter(Boolean);
+            const text = already === o.length ? `All ${already} already running` : parts.join(', ');
+            live.result(`Default set   ${text || 'nothing to start'}`, failed ? 'err' : started ? 'ok' : 'info');
           });
           return json(res, 202, { starting: names });
         }

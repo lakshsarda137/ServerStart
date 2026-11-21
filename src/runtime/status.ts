@@ -7,11 +7,25 @@ import { logPath } from '../paths.js';
 import { composePs, dockerVersion, parseUpSeconds, type ComposeContainer } from './docker.js';
 import { nodeVersion, prefixLines, venvPath } from './env.js';
 import { errorSince } from './logs.js';
-import { listeners, portOpen } from './ports.js';
+import { listeners, portOpen, processCwd } from './ports.js';
 import { psInfo } from './proc.js';
 import { checkReady } from './ready.js';
 import { readState, updateState, type StateFile } from './state.js';
 import type { ServiceStatus } from './types.js';
+
+// lsof per poll is slow-ish; a PID's cwd rarely changes
+const cwdCache = new Map<number, { at: number; cwd: string | null }>();
+async function cachedCwd(pid: number): Promise<string | null> {
+  const hit = cwdCache.get(pid);
+  if (hit && Date.now() - hit.at < 15000) return hit.cwd;
+  const cwd = await processCwd(pid);
+  cwdCache.set(pid, { at: Date.now(), cwd });
+  return cwd;
+}
+
+export function withinDir(path: string | null, dir: string): boolean {
+  return !!path && (path === dir || path.startsWith(dir + '/'));
+}
 
 export function serviceUrl(svc: Service): string | null {
   return svc.url ?? (svc.port ? `http://localhost:${svc.port}` : null);
@@ -181,7 +195,7 @@ export async function getStatuses(config: Config, opts: { dockerMaxAgeMs?: numbe
       if (held && svc.port) {
         const l = (await listeners(svc.port))[0];
         st.state = 'external';
-        st.external = l ? { pid: l.pid, command: l.command } : null;
+        st.external = l ? { pid: l.pid, command: l.command, same_project: withinDir(await cachedCwd(l.pid), svc.cwd) } : null;
         st.pid = l?.pid ?? null;
         if (l) st.runtime = l.command;
       }

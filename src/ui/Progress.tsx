@@ -46,7 +46,9 @@ export function Progress<T>(props: { engine: Engine; config: Config; names: stri
       const s = state[n];
       const svc = props.config.services[n];
       const detail =
-        s.state === 'crashed'
+        s.state === 'external'
+          ? c(p.text, 'already running') + (s.pid ? '   ' + c(p.muted, `PID ${s.pid}`) : '')
+          : s.state === 'crashed'
           ? c(p.err, trunc(s.error ?? '', 44))
           : s.state === 'blocked'
             ? c(p.text, s.blocked_by ?? '') + ' ' + c(p.states.crashed, '✕')

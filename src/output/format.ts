@@ -170,7 +170,7 @@ export function upLine(o: UpOutcome, nw = 17): string {
   const p = pal();
   if (o.external) {
     if (plain()) return (pad(o.name, nw) + pad('external', 10) + pad(o.port ? String(o.port) : '-', 7) + pad('-', 7) + `already running outside serverstart, pid ${o.external.pid}`).trimEnd();
-    return '  ' + c(p.states.external, GLYPH.external) + ' ' + pad(c(p.text, o.name), nw) + pad(c(p.states.external, 'external'), 11) + pad(o.port ? c(p.port, o.port) : c(p.faint, '–'), 7) + c(p.muted, 'PID ') + c(p.text, o.external.pid);
+    return '  ' + c(p.states.external, GLYPH.external) + ' ' + pad(c(p.text, o.name), nw) + pad(c(p.states.external, 'external'), 11) + pad(o.port ? c(p.port, o.port) : c(p.faint, '–'), 7) + c(p.text, 'already running') + '   ' + c(p.muted, 'outside ServerStart   PID ') + c(p.muted, o.external.pid);
   }
   if (plain()) {
     const detail = o.state === 'blocked' ? `blocked by ${o.blocked_by}` : (o.error ?? (o.already_running ? 'already running' : ''));
@@ -189,12 +189,20 @@ export function upLine(o: UpOutcome, nw = 17): string {
 }
 
 export function upSummary(out: UpOutcome[]): string {
-  const external = out.filter((o) => o.external).length;
-  const ready = out.filter((o) => o.state === 'ready').length - external;
+  const already = out.filter((o) => o.already_running).length;
+  const started = out.filter((o) => o.state === 'ready' && !o.already_running).length;
   const failed = out.filter((o) => o.state !== 'ready').length;
-  if (plain()) return `${ready} ready${external ? `   ${external} external` : ''}${failed ? `   ${failed} failed` : ''}`;
+  if (plain()) {
+    const parts = [started || (!already && !failed) ? `${started} started` : '', already ? `${already} already running` : '', failed ? `${failed} failed` : ''].filter(Boolean);
+    return parts.join('   ');
+  }
   const p = pal();
-  return '  ' + c(p.ok, `✓ ${ready} ready`) + (external ? '   ' + c(p.states.external, `◇ ${external} external`) : '') + (failed ? '   ' + c(p.err, `✕ ${failed} failed`) : '');
+  const parts = [
+    started || (!already && !failed) ? c(p.ok, `✓ ${started} started`) : '',
+    already ? c(p.text, `${already} already running`) : '',
+    failed ? c(p.err, `✕ ${failed} failed`) : '',
+  ].filter(Boolean);
+  return '  ' + parts.join('   ');
 }
 
 export function downLine(o: DownOutcome, nw = 17): string {
