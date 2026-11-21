@@ -52,17 +52,42 @@ function plist(): string {
 `;
 }
 
+/**
+ * A stable path to node: prefer the `node` on PATH that resolves to the running binary
+ * (e.g. /opt/homebrew/bin/node) over the versioned Cellar path, which breaks on upgrade.
+ */
+export function nodePath(): string {
+  let real = process.execPath;
+  try {
+    real = realpathSync(process.execPath);
+  } catch {
+    /* keep execPath */
+  }
+  for (const dir of (process.env.PATH ?? '').split(':')) {
+    const candidate = join(dir, 'node');
+    try {
+      if (existsSync(candidate) && realpathSync(candidate) === real) return candidate;
+    } catch {
+      /* skip */
+    }
+  }
+  return process.execPath;
+}
+
 function loginScript(config: Config): string {
-  const node = process.execPath;
+  const node = nodePath();
   const cli = cliPath();
   const configArg = ` --config ${q(config.path)}`;
-  const lines = ['#!/bin/zsh', '# Written by serverstart (start_on_login). Do not edit.', `${q(node)} ${q(cli)} up --quiet${configArg}`];
+  // keep the same state/config locations the user's terminal uses
+  const env = ['XDG_STATE_HOME', 'XDG_CONFIG_HOME'].filter((k) => process.env[k]).map((k) => `export ${k}=${q(process.env[k]!)}`);
+  const lines = ['#!/bin/zsh', '# Written by serverstart (start_on_login). Do not edit.', ...env, `${q(node)} ${q(cli)} up --quiet${configArg}`];
   if (config.settings.openDashboardOnLogin) lines.push(`open -a Terminal ${q(dashboardCommandPath())}`);
   return lines.join('\n') + '\n';
 }
 
 function dashboardCommand(config: Config): string {
-  return `#!/bin/zsh -l\nexec ${q(process.execPath)} ${q(cliPath())} dash --config ${q(config.path)}\n`;
+  const env = ['XDG_STATE_HOME', 'XDG_CONFIG_HOME'].filter((k) => process.env[k]).map((k) => `export ${k}=${q(process.env[k]!)}\n`).join('');
+  return `#!/bin/zsh -l\n${env}exec ${q(nodePath())} ${q(cliPath())} dash --config ${q(config.path)}\n`;
 }
 
 const uid = () => process.getuid?.() ?? 501;

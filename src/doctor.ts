@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { execa } from 'execa';
 import type { Config, Service } from './config/load.js';
@@ -22,6 +22,15 @@ interface Check {
   fix?: string;
 }
 
+function hasDependencies(dir: string): boolean {
+  try {
+    const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { dependencies?: object; devDependencies?: object };
+    return Object.keys({ ...pkg.dependencies, ...pkg.devDependencies }).length > 0;
+  } catch {
+    return false;
+  }
+}
+
 function firstWord(cmd: string): string {
   const words = cmd.trim().split(/\s+/);
   let i = 0;
@@ -42,7 +51,7 @@ async function serviceChecks(svc: Service, config: Config, held: Map<number, { p
   if (!existsSync(svc.cwd)) return bad('fail', `cwd missing   ${tildify(svc.cwd)}`, 'serverstart edit');
   const venv = venvPath(svc);
   if (venv && !existsSync(venv)) return bad('fail', `${svc.python!.venv} missing   ${tildify(venv)}`, `cd ${tildify(svc.cwd)} && python3 -m venv ${svc.python!.venv}`);
-  if (svc.kind === 'node' && existsSync(join(svc.cwd, 'package.json')) && !existsSync(join(svc.cwd, 'node_modules'))) {
+  if (svc.kind === 'node' && hasDependencies(svc.cwd) && !existsSync(join(svc.cwd, 'node_modules'))) {
     const pm = existsSync(join(svc.cwd, 'pnpm-lock.yaml')) ? 'pnpm' : existsSync(join(svc.cwd, 'yarn.lock')) ? 'yarn' : existsSync(join(svc.cwd, 'bun.lockb')) ? 'bun' : 'npm';
     return bad('fail', 'node_modules missing', `cd ${tildify(svc.cwd)} && ${pm} install`);
   }
